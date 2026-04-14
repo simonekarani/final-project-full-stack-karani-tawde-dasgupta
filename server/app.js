@@ -221,37 +221,54 @@ app.get('/api/recommendations', async (req, res) => {
 
     // 1. Validation
     if (!interest || !city) {
-        return res.status(400).json({ error: "Please provide both an interest and a city." });
+        return res.status(400).json({ error: "Please provide both an interest and a city." })
     }
 
     try {
-        // 2. This is where Ruhi calls the External API (Example: Foursquare)
-        // const apiKey = process.env.FOURSQUARE_API_KEY; key=YNRGMZ0IMKMHMO0EHXE141OL3QHXLCPF33UQMS1VY4P414OX
-        // const response = await fetch(`https://api.foursquare.com/v3/places/search?query=${interest}&near=${city}`, {
-        //     headers: { 'Authorization': apiKey }
-        // });
-        // const data = await response.json();
+        // Build the URL with search parameters
+        const searchParams = new URLSearchParams({
+            query: interest,
+            near: city,
+            fields: 'fsq_id,name,location,rating,photos',
+            limit: 5
+        })
 
-        // 3. For now, let's return a success message so Simone can test the UI
-        console.log(`Searching for ${interest} in ${city}...`);
-        
+        const response = await fetch(`https://api.foursquare.com/v3/places/search?${searchParams}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Authorization': process.env.FOURSQUARE_API_KEY // Key should be in .env
+            }
+        })
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || "Foursquare API error")
+        }
+
+        const data = await response.json()
+
+        // Map the data so it's clean for Simone/Frontend
+        const results = data.results.map(place => ({
+            id: place.fsq_id,
+            name: place.name,
+            address: place.location.formatted_address,
+            rating: place.rating || 'N/A'
+        }))
+
         res.json({
             context: { interest, city },
-            results: [
-                { id: 101, name: `Top Rated ${interest} in ${city}`, location: "Downtown", rating: 4.8 },
-                { id: 102, name: `Hidden Gem ${interest}`, location: "Old Town", rating: 4.5 }
-            ],
-            message: "Success! Once you add your API key, real-time data will appear here."
-        });
+            results: results
+        })
 
     } catch (err) {
-        console.error("External API Error:", err.message);
-        res.status(500).json({ error: "Failed to fetch recommendations from external provider." });
+        console.error("External API Error:", err.message)
+        res.status(500).json({ error: "Failed to fetch recommendations from external provider." })
     }
 });
 
 app.listen(app.get('port'), () => {
-    console.log('App is running at http://localhost:%d in %s mode', app.get('port'), app.get('env'));
-    console.log('  Press CTRL-C to stop\n');
-  });
+    console.log('App is running at http://localhost:%d in %s mode', app.get('port'), app.get('env'))
+    console.log('  Press CTRL-C to stop\n')
+  })
   
