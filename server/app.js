@@ -1,6 +1,7 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import 'dotenv/config'
+
 import { query } from './db/postgres.js';
 
 // create the app
@@ -219,51 +220,50 @@ app.delete('/api/activities/:id', async (req, res) => {
 app.get('/api/recommendations', async (req, res) => {
     const { interest, city } = req.query;
 
-    // 1. Validation
     if (!interest || !city) {
-        return res.status(400).json({ error: "Please provide both an interest and a city." })
+        return res.status(400).json({ error: "Missing parameters. Need interest and city." });
     }
 
     try {
-        // Build the URL with search parameters
-        const searchParams = new URLSearchParams({
-            query: interest,
-            near: city,
-            fields: 'fsq_id,name,location,rating,photos',
-            limit: 5
-        })
+        // 1. The 2026 'New' Endpoint
+        const url = 'https://places.googleapis.com/v1/places:searchText';
 
-        const response = await fetch(`https://api.foursquare.com/v3/places/search?${searchParams}`, {
-            method: 'GET',
+        const response = await fetch(url, {
+            method: 'POST',
             headers: {
-                'Accept': 'application/json',
-                'Authorization': process.env.FOURSQUARE_API_KEY // Key should be in .env
-            }
-        })
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': process.env.GM_API_KEY.trim(),
+                // 2. Field Mask: Tell Google exactly what to return (saves money/quota!)
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.rating,places.types'
+            },
+            body: JSON.stringify({
+                textQuery: `${interest} in ${city}`,
+                maxResultCount: 5
+            })
+        });
+
+        const data = await response.json();
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || "Foursquare API error")
+            console.error("Google Places 2026 Error:", data);
+            return res.status(response.status).json(data);
         }
 
-        const data = await response.json()
+        // 3. Clean mapping for Simone's UI
+        // Google (New) returns displayName as an object with 'text'
+        const results = data.places.map(place => ({
+            id: place.id,
+            name: place.displayName?.text || "Unknown Name",
+            address: place.formattedAddress,
+            rating: place.rating || "N/A",
+            category: place.types ? place.types[0].replace(/_/g, ' ') : 'Attraction'
+        }));
 
-        // Map the data so it's clean for Simone/Frontend
-        const results = data.results.map(place => ({
-            id: place.fsq_id,
-            name: place.name,
-            address: place.location.formatted_address,
-            rating: place.rating || 'N/A'
-        }))
-
-        res.json({
-            context: { interest, city },
-            results: results
-        })
+        res.json(results);
 
     } catch (err) {
-        console.error("External API Error:", err.message)
-        res.status(500).json({ error: "Failed to fetch recommendations from external provider." })
+        console.error("Connection Error:", err.message);
+        res.status(500).json({ error: "Failed to connect to Google Places (New)" });
     }
 });
 
