@@ -24,6 +24,7 @@ app.get('/up', (req, res) => {
 })
 
 
+
 //User Accounts
 
 // POST /signup
@@ -106,12 +107,12 @@ app.delete('/api/trips/:id', async (req, res) => {
 })
 
 // PUT /api/trips/:id - Update an existing trip
-app.get('/api/trips/:id', async (req, res) => {
+app.put('/api/trips/:id', async (req, res) => {
     const { id } = req.params;
     const { destination, start_date, end_date } = req.body
 
     try {
-        // COALESCE ensures we don't overwrite data with NULL if a field is missing in req.body
+        
         const sql = `
             UPDATE trips 
             SET 

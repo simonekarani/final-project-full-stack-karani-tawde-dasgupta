@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import axios from 'axios';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import './App.css';
 
@@ -85,6 +86,8 @@ function AuthPage({ onAuthSuccess }) {
     </section>
   );
 }
+
+
 
 function DashboardPage({ trips, memberEmail }) {
   return (
@@ -200,6 +203,18 @@ function App() {
   const [member, setMember] = useState(null);
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
+
+  // handling user login
+  const handleLogin = async (email, password) => {
+  try {
+      const response = await travelApi.login({ email, password });
+      // This 'response.data' comes from your POST /api/login route in app.js
+      setMember(response.data); 
+      navigate('/dashboard');
+  } catch (err) {
+      alert("Login failed! Check your credentials.");
+  }
+  };
 
   const saveItinerary = (destination) => {
     const newTrip = {
