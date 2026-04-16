@@ -31,7 +31,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
   const handleSaveItinerary = async (destination) => {
     setSaving(destination.id);
     try {
-      await travelApi.createTrip({
+      const response = await travelApi.createTrip({
         user_id: member?.id,
         destination: `${destination.city}, ${destination.country}`,
         start_date: '2026-06-01',
@@ -40,7 +40,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
       });
 
       const newTrip = {
-        id: Date.now(),
+        id: response.data.id,
         destination: `${destination.city}, ${destination.country}`,
         startDate: '2026-06-01',
         endDate: '2026-06-05',
@@ -262,16 +262,17 @@ function TripFormPage({ trips, onSaveTrip, member }) {
           end_date: form.endDate,
           notes: form.notes
         });
+        onSaveTrip({ ...form, id: editingTrip?.id });
       } else {
-        await travelApi.createTrip({
+        const response = await travelApi.createTrip({
           user_id: member?.id,
           destination: form.destination,
           start_date: form.startDate,
           end_date: form.endDate,
           notes: form.notes
         });
+        onSaveTrip({ ...form, id: response.data.id });
       }
-      onSaveTrip({ ...form, id: editingTrip?.id });
       navigate('/dashboard');
     } catch (err) {
       setError('Failed to save trip. Please try again.');
@@ -336,10 +337,14 @@ function App() {
 
   const saveTrip = (trip) => {
     setTrips((current) => {
-      if (trip.id) {
+      const existing = current.find(item => item.id === trip.id);
+      if (existing) {
+        // Update existing trip
         return current.map((item) => (item.id === trip.id ? { ...item, ...trip } : item));
+      } else {
+        // Add new trip (from form creation)
+        return [{ ...trip, activities: [] }, ...current];
       }
-      return [{ ...trip, id: Date.now(), activities: [] }, ...current];
     });
   };
 
