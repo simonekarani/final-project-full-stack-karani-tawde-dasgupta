@@ -7,18 +7,37 @@ const apiClient = axios.create({
 });
 
 export const travelApi = {
-  // Recommendations from your Google API
-    getRecommendations: (interest, city) => 
-    apiClient.get(`/recommendations?interest=${interest}&city=${city}`),
-
+  // Auth
+    signup: (credentials) => 
+    apiClient.post('/signup', credentials),
+    
+    login: (credentials) => 
+    apiClient.post('/login', credentials),
+    
   // Trip Management for your Postgres DB
     getTrips: (userId) => 
     apiClient.get('/trips', { headers: { 'x-user-id': userId } }),
     
     createTrip: (tripData) => 
-    apiClient.post('/trips', tripData),
+    apiClient.post('/trips', tripData, { headers: { 'x-user-id': tripData.user_id } }),
     
-  // Auth
-    login: (credentials) => 
-    apiClient.post('/login', credentials),
+    updateTrip: (tripId, tripData) => 
+    apiClient.put(`/trips/${tripId}`, tripData),
+    
+    deleteTrip: (tripId) => 
+    apiClient.delete(`/trips/${tripId}`),
+    
+  // Activity Management
+    addActivity: (tripId, activityData) => 
+    apiClient.post(`/trips/${tripId}/activities`, activityData),
+    
+    updateActivity: (activityId, activityData) => 
+    apiClient.put(`/activities/${activityId}`, activityData),
+    
+    removeActivity: (activityId) => 
+    apiClient.delete(`/activities/${activityId}`),
+    
+  // Recommendations from your Google API
+    getRecommendations: (interest, city) => 
+    apiClient.get(`/recommendations?interest=${interest}&city=${city}`),
 };

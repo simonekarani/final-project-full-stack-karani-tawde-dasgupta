@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import axios from 'axios';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { travelApi } from './api.js';
 import './App.css';
 
 const DESTINATIONS = [
@@ -24,7 +25,37 @@ const INITIAL_TRIPS = [
   },
 ];
 
-function HomePage({ isMember, onSaveItinerary }) {
+function HomePage({ isMember, onSaveItinerary, member }) {
+  const [saving, setSaving] = useState(null);
+
+  const handleSaveItinerary = async (destination) => {
+    setSaving(destination.id);
+    try {
+      await travelApi.createTrip({
+        user_id: member?.id,
+        destination: `${destination.city}, ${destination.country}`,
+        start_date: '2026-06-01',
+        end_date: '2026-06-05',
+        notes: `Saved from destination card for ${destination.city}.`
+      });
+
+      const newTrip = {
+        id: Date.now(),
+        destination: `${destination.city}, ${destination.country}`,
+        startDate: '2026-06-01',
+        endDate: '2026-06-05',
+        notes: `Saved from destination card for ${destination.city}.`,
+        activities: [],
+      };
+      onSaveItinerary(newTrip);
+    } catch (err) {
+      alert('Failed to save itinerary. Please try again.');
+      console.error(err);
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <section>
       <div className="hero">
@@ -39,8 +70,8 @@ function HomePage({ isMember, onSaveItinerary }) {
               <h3>{destination.city}, {destination.country}</h3>
               <p>{destination.description}</p>
               {isMember ? (
-                <button onClick={() => onSaveItinerary(destination)}>
-                  Save itinerary
+                <button onClick={() => handleSaveItinerary(destination)} disabled={saving === destination.id}>
+                  {saving === destination.id ? 'Saving...' : 'Save itinerary'}
                 </button>
               ) : (
                 <Link to="/auth" className="small-link">Login to save itinerary</Link>
@@ -56,17 +87,35 @@ function HomePage({ isMember, onSaveItinerary }) {
 function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const onSubmit = (event) => {
+  const onSubmit = async (event) => {
     event.preventDefault();
-    onAuthSuccess(form.email);
-    navigate('/dashboard');
+    setError('');
+    
+    try {
+      if (mode === 'signup') {
+        if (form.password !== form.confirmPassword) {
+          setError('Passwords do not match');
+          return;
+        }
+        const response = await travelApi.signup({ email: form.email, password: form.password });
+        onAuthSuccess(response.data);
+      } else {
+        const response = await travelApi.login({ email: form.email, password: form.password });
+        onAuthSuccess(response.data);
+      }
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Authentication failed. Please try again.');
+    }
   };
 
   return (
     <section className="auth-panel">
       <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
       <form onSubmit={onSubmit}>
         <label>Email</label>
         <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
@@ -113,16 +162,43 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
   const { tripId } = useParams();
   const trip = trips.find((item) => String(item.id) === tripId);
   const [activity, setActivity] = useState({ name: '', location: '', date: '', notes: '' });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   if (!trip) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const submitActivity = (event) => {
+  const submitActivity = async (event) => {
     event.preventDefault();
     if (!activity.name || !activity.location || !activity.date) return;
-    onAddActivity(trip.id, activity);
-    setActivity({ name: '', location: '', date: '', notes: '' });
+    
+    setLoading(true);
+    setError('');
+    try {
+      const response = await travelApi.addActivity(trip.id, activity);
+      onAddActivity(trip.id, response.data.activity);
+      setActivity({ name: '', location: '', date: '', notes: '' });
+    } catch (err) {
+      setError('Failed to add activity. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveActivity = async (activityId) => {
+    setLoading(true);
+    setError('');
+    try {
+      await travelApi.removeActivity(activityId);
+      onRemoveActivity(trip.id, activityId);
+    } catch (err) {
+      setError('Failed to remove activity. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -139,13 +215,14 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
                 <p>{item.location} • {item.date}</p>
                 {item.notes && <small>{item.notes}</small>}
               </div>
-              <button className="danger-btn" onClick={() => onRemoveActivity(trip.id, item.id)}>Remove</button>
+              <button className="danger-btn" onClick={() => handleRemoveActivity(item.id)} disabled={loading}>Remove</button>
             </article>
           ))}
         </div>
       </div>
       <aside className="form-card">
         <h3>Add Activity</h3>
+        {error && <p style={{ color: 'red' }}>{error}</p>}
         <form onSubmit={submitActivity}>
           <label>Name</label>
           <input value={activity.name} onChange={(e) => setActivity({ ...activity, name: e.target.value })} />
@@ -155,30 +232,59 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
           <input type="date" value={activity.date} onChange={(e) => setActivity({ ...activity, date: e.target.value })} />
           <label>Notes</label>
           <textarea value={activity.notes} onChange={(e) => setActivity({ ...activity, notes: e.target.value })} rows="3" />
-          <button type="submit">Add activity</button>
+          <button type="submit" disabled={loading}>{loading ? 'Adding...' : 'Add activity'}</button>
         </form>
       </aside>
     </section>
   );
 }
 
-function TripFormPage({ trips, onSaveTrip }) {
+function TripFormPage({ trips, onSaveTrip, member }) {
   const { tripId } = useParams();
   const navigate = useNavigate();
   const editingTrip = trips.find((item) => String(item.id) === tripId);
   const [form, setForm] = useState(
     editingTrip || { destination: '', startDate: '', endDate: '', notes: '', activities: [] }
   );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const onSubmit = (event) => {
+  const onSubmit = async (event) => {
     event.preventDefault();
-    onSaveTrip({ ...form, id: editingTrip?.id });
-    navigate('/dashboard');
+    setLoading(true);
+    setError('');
+
+    try {
+      if (editingTrip) {
+        await travelApi.updateTrip(editingTrip.id, {
+          destination: form.destination,
+          start_date: form.startDate,
+          end_date: form.endDate,
+          notes: form.notes
+        });
+      } else {
+        await travelApi.createTrip({
+          user_id: member?.id,
+          destination: form.destination,
+          start_date: form.startDate,
+          end_date: form.endDate,
+          notes: form.notes
+        });
+      }
+      onSaveTrip({ ...form, id: editingTrip?.id });
+      navigate('/dashboard');
+    } catch (err) {
+      setError('Failed to save trip. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <section className="form-card">
       <h2>{editingTrip ? 'Edit trip' : 'Create trip'}</h2>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
       <form onSubmit={onSubmit}>
         <label>Destination</label>
         <input required value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} />
@@ -188,7 +294,7 @@ function TripFormPage({ trips, onSaveTrip }) {
         <input required type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
         <label>Trip notes</label>
         <textarea rows="4" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-        <button type="submit">{editingTrip ? 'Update trip' : 'Create trip'}</button>
+        <button type="submit" disabled={loading}>{loading ? 'Saving...' : (editingTrip ? 'Update trip' : 'Create trip')}</button>
       </form>
     </section>
   );
@@ -204,27 +310,7 @@ function App() {
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
 
-  // handling user login
-  const handleLogin = async (email, password) => {
-  try {
-      const response = await travelApi.login({ email, password });
-      // This 'response.data' comes from your POST /api/login route in app.js
-      setMember(response.data); 
-      navigate('/dashboard');
-  } catch (err) {
-      alert("Login failed! Check your credentials.");
-  }
-  };
-
-  const saveItinerary = (destination) => {
-    const newTrip = {
-      id: Date.now(),
-      destination: `${destination.city}, ${destination.country}`,
-      startDate: '2026-06-01',
-      endDate: '2026-06-05',
-      notes: `Saved from destination card for ${destination.city}.`,
-      activities: [],
-    };
+  const saveItinerary = (newTrip) => {
     setTrips((current) => [newTrip, ...current]);
   };
 
@@ -232,7 +318,7 @@ function App() {
     setTrips((current) =>
       current.map((trip) =>
         trip.id === tripId
-          ? { ...trip, activities: [...trip.activities, { ...activity, id: Date.now() }] }
+          ? { ...trip, activities: [...trip.activities, activity] }
           : trip
       )
     );
@@ -275,8 +361,8 @@ function App() {
 
       <main className="page-content">
         <Routes>
-          <Route path="/" element={<HomePage isMember={Boolean(member)} onSaveItinerary={saveItinerary} />} />
-          <Route path="/auth" element={<AuthPage onAuthSuccess={(email) => setMember({ email })} />} />
+          <Route path="/" element={<HomePage isMember={Boolean(member)} onSaveItinerary={saveItinerary} member={member} />} />
+          <Route path="/auth" element={<AuthPage onAuthSuccess={setMember} />} />
           <Route
             path="/dashboard"
             element={(
@@ -289,7 +375,7 @@ function App() {
             path="/trips/new"
             element={(
               <ProtectedRoute isMember={Boolean(member)}>
-                <TripFormPage trips={trips} onSaveTrip={saveTrip} />
+                <TripFormPage trips={trips} onSaveTrip={saveTrip} member={member} />
               </ProtectedRoute>
             )}
           />
@@ -297,7 +383,7 @@ function App() {
             path="/trips/edit/:tripId"
             element={(
               <ProtectedRoute isMember={Boolean(member)}>
-                <TripFormPage trips={trips} onSaveTrip={saveTrip} />
+                <TripFormPage trips={trips} onSaveTrip={saveTrip} member={member} />
               </ProtectedRoute>
             )}
           />
