@@ -165,9 +165,25 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const [recommendations, setRecommendations] = useState([]);
+  const [recCategory, setRecCategory] = useState('cafes');
+
   if (!trip) {
     return <Navigate to="/dashboard" replace />;
   }
+
+  const getRecs = async () => {
+    setLoading(true);
+    try {
+      // Use the interest (category) and the trip destination
+      const response = await travelApi.getRecommendations(recCategory, trip.destination);
+      setRecommendations(response.data);
+    } catch (err) {
+      setError('Could not fetch recommendations.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const submitActivity = async (event) => {
     event.preventDefault();
@@ -207,6 +223,44 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
         <h2>{trip.destination}</h2>
         <p className="muted-text">{trip.startDate} - {trip.endDate}</p>
         <p>{trip.notes}</p>
+        {/* RECOMMENDATION SECTION */}
+        <div className="recommendations-box">
+          <h3>Discover {trip.destination}</h3>
+          <div className="rec-controls">
+            <select value={recCategory} onChange={(e) => setRecCategory(e.target.value)}>
+              <option value="museums">Museums</option>
+              <option value="cafes">Coffee Shops</option>
+              <option value="parks">Parks</option>
+              <option value="restaurants">Restaurants</option>
+            </select>
+            <button onClick={getRecs} disabled={loading}>Search</button>
+          </div>
+
+          <div className="rec-list">
+            {recommendations.map((rec) => (
+              <div key={rec.id} className="rec-item">
+                <div>
+                  <strong>{rec.name}</strong>
+                  <p>{rec.address} • ⭐ {rec.rating}</p>
+                </div>
+                <button 
+                  className="small-btn"
+                  onClick={() => setActivity({
+                    name: rec.name,
+                    location: rec.address,
+                    date: trip.startDate, // Default to trip start date
+                    notes: 'Recommended via Google'
+                  })}
+                >
+                  Use this
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+
+
         <div className="list-stack">
           {trip.activities.map((item) => (
             <article className="activity-row" key={item.id}>

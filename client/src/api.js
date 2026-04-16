@@ -6,6 +6,13 @@ const apiClient = axios.create({
     baseURL: API_BASE_URL,
 });
 
+
+export const travelApi = {
+  // ... other methods ...
+  getRecommendations: (interest, city) => 
+    axios.get(`http://localhost:3000/api/recommendations?interest=${interest}&city=${city}`),
+};
+
 export const travelApi = {
   // Auth
     signup: (credentials) => 
