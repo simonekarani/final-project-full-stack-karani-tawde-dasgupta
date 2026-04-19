@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react';
 import axios from 'axios';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { travelApi } from './api.js';
 import './App.css';
 
@@ -24,6 +29,108 @@ const INITIAL_TRIPS = [
     ],
   },
 ];
+
+delete L.Icon.Default.prototype._getIconUrl;
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
+
+const DESTINATION_COORDS = {
+  'Kyoto, Japan': [35.0116, 135.7681],
+  'Lisbon, Portugal': [38.7223, -9.1393],
+  'Vancouver, Canada': [49.2827, -123.1207],
+  'Cape Town, South Africa': [-33.9249, 18.4241],
+  'Paris': [48.8566, 2.3522],
+  'Tokyo': [35.6762, 139.6503],
+};
+
+const ACTIVITY_COORDS = {
+  'Fushimi Inari Shrine': [34.9671, 135.7727],
+  'Arashiyama Bamboo Grove': [35.0170, 135.6713],
+  'Eiffel Tower Visit': [48.8584, 2.2945],
+  'Louvre Museum': [48.8606, 2.3376],
+  'Shibuya Crossing': [35.6595, 139.7005],
+};
+
+function getDestinationCoords(destination) {
+  return DESTINATION_COORDS[destination] || [40.7128, -74.0060];
+}
+
+function getActivityCoords(activity, tripDestination) {
+  return ACTIVITY_COORDS[activity.name] || getDestinationCoords(tripDestination);
+}
+
+function MapClickHandler() {
+  useMapEvents({
+    click(e) {
+      console.log('map clicked at', e.latlng);
+    },
+  });
+
+  return null;
+}
+
+function TripMap({ trip, selectedActivity, onSelectActivity }) {
+  const center = getDestinationCoords(trip.destination);
+
+  return (
+    <div className="trip-map-wrapper">
+      <MapContainer
+        center={center}
+        zoom={12}
+        scrollWheelZoom={true}
+        className="trip-map"
+      >
+        <TileLayer
+          attribution='&copy; OpenStreetMap contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <MapClickHandler />
+
+        <Marker position={center}>
+          <Popup>
+            <div>
+              <strong>{trip.destination}</strong>
+              <p>main destination</p>
+            </div>
+          </Popup>
+        </Marker>
+
+        {trip.activities.map((activity) => (
+          <Marker
+            key={activity.id}
+            position={getActivityCoords(activity, trip.destination)}
+            eventHandlers={{
+              click: () => onSelectActivity(activity),
+            }}
+          >
+            <Popup>
+              <div>
+                <strong>{activity.name}</strong>
+                <p>{activity.location}</p>
+                <p>{activity.date}</p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+
+      {selectedActivity && (
+        <div className="map-details-card">
+          <h3>selected activity</h3>
+          <p><strong>name:</strong> {selectedActivity.name}</p>
+          <p><strong>location:</strong> {selectedActivity.location}</p>
+          <p><strong>date:</strong> {selectedActivity.date}</p>
+          {selectedActivity.notes && <p><strong>notes:</strong> {selectedActivity.notes}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function HomePage({ isMember, onSaveItinerary, member }) {
   const [saving, setSaving] = useState(null);
@@ -162,9 +269,9 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
   const { tripId } = useParams();
   const trip = trips.find((item) => String(item.id) === tripId);
   const [activity, setActivity] = useState({ name: '', location: '', date: '', notes: '' });
+  const [selectedActivity, setSelectedActivity] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
   const [recommendations, setRecommendations] = useState([]);
   const [recCategory, setRecCategory] = useState('cafes');
 
@@ -174,8 +281,8 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
 
   const getRecs = async () => {
     setLoading(true);
+    setError('');
     try {
-      // Use the interest (category) and the trip destination
       const response = await travelApi.getRecommendations(recCategory, trip.destination);
       setRecommendations(response.data);
     } catch (err) {
@@ -188,7 +295,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
   const submitActivity = async (event) => {
     event.preventDefault();
     if (!activity.name || !activity.location || !activity.date) return;
-    
+
     setLoading(true);
     setError('');
     try {
@@ -223,7 +330,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
         <h2>{trip.destination}</h2>
         <p className="muted-text">{trip.startDate} - {trip.endDate}</p>
         <p>{trip.notes}</p>
-        {/* RECOMMENDATION SECTION */}
+
         <div className="recommendations-box">
           <h3>Discover {trip.destination}</h3>
           <div className="rec-controls">
@@ -243,14 +350,16 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
                   <strong>{rec.name}</strong>
                   <p>{rec.address} • ⭐ {rec.rating}</p>
                 </div>
-                <button 
+                <button
                   className="small-btn"
-                  onClick={() => setActivity({
-                    name: rec.name,
-                    location: rec.address,
-                    date: trip.startDate, // Default to trip start date
-                    notes: 'Recommended via Google'
-                  })}
+                  onClick={() =>
+                    setActivity({
+                      name: rec.name,
+                      location: rec.address,
+                      date: trip.startDate,
+                      notes: 'Recommended via Google'
+                    })
+                  }
                 >
                   Use this
                 </button>
@@ -259,7 +368,11 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
           </div>
         </div>
 
-
+        <TripMap
+          trip={trip}
+          selectedActivity={selectedActivity}
+          onSelectActivity={setSelectedActivity}
+        />
 
         <div className="list-stack">
           {trip.activities.map((item) => (
@@ -269,11 +382,18 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
                 <p>{item.location} • {item.date}</p>
                 {item.notes && <small>{item.notes}</small>}
               </div>
-              <button className="danger-btn" onClick={() => handleRemoveActivity(item.id)} disabled={loading}>Remove</button>
+              <button
+                className="danger-btn"
+                onClick={() => handleRemoveActivity(item.id)}
+                disabled={loading}
+              >
+                Remove
+              </button>
             </article>
           ))}
         </div>
       </div>
+
       <aside className="form-card">
         <h3>Add Activity</h3>
         {error && <p style={{ color: 'red' }}>{error}</p>}
@@ -286,7 +406,9 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
           <input type="date" value={activity.date} onChange={(e) => setActivity({ ...activity, date: e.target.value })} />
           <label>Notes</label>
           <textarea value={activity.notes} onChange={(e) => setActivity({ ...activity, notes: e.target.value })} rows="3" />
-          <button type="submit" disabled={loading}>{loading ? 'Adding...' : 'Add activity'}</button>
+          <button type="submit" disabled={loading}>
+            {loading ? 'Adding...' : 'Add activity'}
+          </button>
         </form>
       </aside>
     </section>

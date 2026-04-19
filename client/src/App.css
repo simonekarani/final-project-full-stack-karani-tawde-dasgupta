@@ -220,3 +220,33 @@ textarea {
     flex-wrap: wrap;
   }
 }
+
+.trip-map-wrapper {
+  margin: 1rem 0 1.25rem;
+}
+
+.trip-map {
+  height: 420px;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #dce8e3;
+}
+
+.map-details-card {
+  margin-top: 0.9rem;
+  padding: 1rem;
+  border: 1px solid #dce8e3;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.map-details-card h3 {
+  margin-top: 0;
+  color: #2c4942;
+}
+
+.map-details-card p {
+  margin: 0.35rem 0;
+  color: #5f7770;
+}
