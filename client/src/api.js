@@ -6,13 +6,6 @@ const apiClient = axios.create({
     baseURL: API_BASE_URL,
 });
 
-
-export const travelApi = {
-  // ... other methods ...
-  getRecommendations: (interest, city) => 
-    axios.get(`http://localhost:3000/api/recommendations?interest=${interest}&city=${city}`),
-};
-
 export const travelApi = {
   // Auth
     signup: (credentials) => 
@@ -47,4 +40,12 @@ export const travelApi = {
   // Recommendations from your Google API
     getRecommendations: (interest, city) => 
     apiClient.get(`/recommendations?interest=${interest}&city=${city}`),
+
+  // Weather from OpenWeather API
+    getWeather: (city, date) => 
+    apiClient.get(`/weather?city=${city}&date=${date || ''}`),
+
+  // Events from Ticketmaster API
+    getEvents: (city, startDate, endDate) => 
+    apiClient.get(`/events?city=${city}&startDate=${startDate || ''}&endDate=${endDate || ''}`),
 };

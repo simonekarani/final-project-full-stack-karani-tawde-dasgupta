@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
-import { travelApi } from './api.js'; 
+import { travelApi } from '../api.js';
 import axios from 'axios';
 import TripMap from '../components/TripMap';
 
@@ -32,48 +32,38 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
     const [weatherLoading, setWeatherLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [events, setEvents] = useState([]);
+    const [eventsLoading, setEventsLoading] = useState(false);
 
   // The weather forecast should either be real expected if trip is in the next two weeks. If the trip is taking place after the next two weeks then the api will pull historical data to display for that time of year
     useEffect(() => {
     const fetchTripWeather = async () => {
-        if (!trip?.destination || !trip?.startDate) return;
+        if (!trip?.destination) return;
         setWeatherLoading(true);
 
     try {
         const city = trip.destination.split(',')[0].trim();
-        // Step 1: Geocoding (Convert City Name to Coordinates)
-        const geoRes = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${city}&count=1`);
         
-        if (geoRes.data.results) {
-            const { latitude, longitude } = geoRes.data.results[0];
-
-          // Determine if we use Forecast API (up to 14 days out) or Archive API
-            const tripDate = new Date(trip.startDate);
-            const today = new Date();
-            const diffInDays = (tripDate - today) / (1000 * 60 * 60 * 24);
-
-            let weatherUrl;
-            if (diffInDays >= 0 && diffInDays <= 14) {
-            // Use Live Forecast
-            weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&start_date=${trip.startDate}&end_date=${trip.startDate}&daily=temperature_2m_max,weathercode&temperature_unit=fahrenheit&timezone=auto`;
-            } else {
-            // Use Historical Archive (for dates far in the future or past)
-            // Note: We look at the same day from 1 year ago to provide a "Historical Average"
-            const historicalDate = new Date(tripDate);
-            historicalDate.setFullYear(historicalDate.getFullYear() - 1);
-            const formattedDate = historicalDate.toISOString().split('T')[0];
-            
-            weatherUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${formattedDate}&end_date=${formattedDate}&daily=temperature_2m_max,weathercode&temperature_unit=fahrenheit&timezone=auto`;
-            }
-
-            const weatherRes = await axios.get(weatherUrl);
+        // Use OpenWeather API for current weather or forecast
+        const tripDate = new Date(trip.startDate);
+        const today = new Date();
+        const diffInDays = (tripDate - today) / (1000 * 60 * 60 * 24);
+        
+        // For dates within 5 days, we can get forecast. For farther dates, we'll show current weather as reference
+        const dateToFetch = (diffInDays >= 0 && diffInDays <= 5) ? trip.startDate : null;
+        
+        const response = await travelApi.getWeather(city, dateToFetch);
+        const weatherData = response.data;
           
-            setWeather({
-                temp: weatherRes.data.daily.temperature_2m_max[0],
-                code: weatherRes.data.daily.weathercode[0],
-                isHistorical: diffInDays > 14 || diffInDays < 0
-            });
-            }
+        setWeather({
+            temp: weatherData.temperature,
+            conditions: weatherData.conditions,
+            description: weatherData.description,
+            humidity: weatherData.humidity,
+            windSpeed: weatherData.windSpeed,
+            icon: weatherData.icon,
+            isForecast: weatherData.isForecast || false
+        });
         } catch (err) {
             console.error("Weather data fetch failed:", err);
         } finally {
@@ -83,6 +73,27 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
 
         fetchTripWeather();
     }, [trip?.destination, trip?.startDate]);
+
+    // Fetch events for the trip destination and dates
+    useEffect(() => {
+        const fetchTripEvents = async () => {
+            if (!trip?.destination || !trip?.startDate || !trip?.endDate) return;
+            setEventsLoading(true);
+
+            try {
+                const city = trip.destination.split(',')[0].trim();
+                const response = await travelApi.getEvents(city, trip.startDate, trip.endDate);
+                setEvents(response.data.events || []);
+            } catch (err) {
+                console.error("Events data fetch failed:", err);
+                setEvents([]);
+            } finally {
+                setEventsLoading(false);
+            }
+        };
+
+        fetchTripEvents();
+    }, [trip?.destination, trip?.startDate, trip?.endDate]);
 
     if (!trip) return <Navigate to="/dashboard" replace />;
 
@@ -141,13 +152,16 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
                 ) : weather ? (
                 <>
                     <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#2c3e50' }}>
-                    {Math.round(weather.temp)}°F
+                    {weather.temp}°F
                     </div>
                     <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#546e7a' }}>
-                    {WEATHER_DESCRIPTIONS[weather.code] || "Variable"}
+                    {weather.conditions}
                     </div>
-                    <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '4px', textTransform: 'uppercase' }}>
-                    {weather.isHistorical ? "Historical Avg" : "Current Forecast"}
+                    <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '4px' }}>
+                    {weather.description}
+                    </div>
+                    <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '2px', textTransform: 'uppercase' }}>
+                    {weather.isForecast ? "Forecast" : "Current"}
                     </div>
                 </>
                 ) : (
@@ -189,6 +203,55 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
             </div>
             </div>
 
+            {/* EVENTS SECTION */}
+            <div className="events-box" style={{ background: '#fff8f0', padding: '1.25rem', borderRadius: '10px', border: '1px solid #ffe0b2', marginBottom: '2rem' }}>
+            <h3>Events in {trip.destination}</h3>
+            {eventsLoading ? (
+                <p>Loading events...</p>
+            ) : events.length > 0 ? (
+                <div className="events-list" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                {events.map((event) => (
+                    <div key={event.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #f0f0f0', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                        <strong style={{ fontSize: '0.9rem' }}>{event.name}</strong>
+                        <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>
+                            {event.date} {event.time && `at ${event.time}`} • {event.venue}
+                        </p>
+                        {event.genre && <small style={{ color: '#888' }}>Genre: {event.genre}</small>}
+                        {event.priceRange && <p style={{ margin: '2px 0', fontSize: '0.75rem', color: '#666' }}>Price: {event.priceRange}</p>}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <button 
+                            className="ghost-btn" 
+                            style={{ padding: '4px 8px', fontSize: '0.75rem' }} 
+                            onClick={() => setActivity({
+                                name: event.name,
+                                location: `${event.venue}${event.address ? `, ${event.address}` : ''}, ${event.city}`,
+                                date: event.date,
+                                notes: `Event: ${event.genre || 'General'}. ${event.description || ''}`
+                            })}
+                        >
+                            Add to Trip
+                        </button>
+                        {event.url && (
+                            <a 
+                                href={event.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style={{ fontSize: '0.75rem', color: '#1976d2', textDecoration: 'none' }}
+                            >
+                                Get Tickets
+                            </a>
+                        )}
+                    </div>
+                    </div>
+                ))}
+                </div>
+            ) : (
+                <p>No events found for your trip dates.</p>
+            )}
+            </div>
+
             <div className="list-stack">
             {trip.activities.map((item) => (
                 <article className="activity-row" key={item.id} style={{ padding: '12px', border: '1px solid #f0f0f0', borderRadius: '8px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
@@ -200,6 +263,31 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
                 <button className="danger-btn" onClick={() => onRemoveActivity(trip.id, item.id)}>Remove</button>
                 </article>
             ))}
+            </div>
+
+            {/* MAP SECTION */}
+            <div className="map-section" style={{ marginTop: '2rem' }}>
+            <h3>Trip Map</h3>
+            <TripMap
+                destination={{
+                    name: trip.destination,
+                    coordinates: [40.7128, -74.0060] // Default to NYC, could be enhanced with geocoding
+                }}
+                attractions={recommendations.filter(rec => rec.coordinates).map(rec => ({
+                    id: rec.id,
+                    name: rec.name,
+                    location: rec.address,
+                    coordinates: rec.coordinates
+                }))}
+                activities={trip.activities.filter(activity => activity.location).map(activity => ({
+                    id: activity.id,
+                    name: activity.name,
+                    location: activity.location,
+                    date: activity.date,
+                    coordinates: [40.7128, -74.0060] // Default coordinates, could be enhanced
+                }))}
+                onMarkerClick={(item) => console.log('Clicked marker:', item)}
+            />
             </div>
         </div>
 
