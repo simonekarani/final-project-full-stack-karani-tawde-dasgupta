@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { travelApi } from './api.js'; 
 import axios from 'axios';
+import TripMap from '../components/TripMap';
 
 // the open meteo API gives weather information in numerical values which then needs to be converted for user use
 const WEATHER_DESCRIPTIONS = {
@@ -16,6 +17,7 @@ const WEATHER_DESCRIPTIONS = {
     80: "Rain Showers",
     95: "Thunderstorm",
 };
+
 
 function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
     const { tripId } = useParams();
@@ -212,12 +214,8 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
             <input type="date" value={activity.date} onChange={(e) => setActivity({ ...activity, date: e.target.value })} />
             <label>Notes</label>
             <textarea value={activity.notes} onChange={(e) => setActivity({ ...activity, notes: e.target.value })} rows="3" />
-            <button type="submit" disabled={isSubmitting || loading}>
-            {isSubmitting ? (
-                <span className="spinner-small"></span> // Add CSS for a simple rotating border
-            ) : (
-                'Add Activity'
-            )}
+            <button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? <span className="spinner-small">Saving...</span> : 'Add Activity'}
             </button>
             </form>
         </aside>

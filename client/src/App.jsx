@@ -8,6 +8,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { travelApi } from './api.js';
 import './App.css';
+import TripDetailsPage from './pages/TripDetailsPage';
 
 const DESTINATIONS = [
   { id: 1, city: 'Kyoto', country: 'Japan', description: 'Temples, tea houses, and spring blossoms.', image: 'https://images.unsplash.com/photo-1492571350019-22de08371fd3?auto=format&fit=crop&w=900&q=80' },
@@ -38,14 +39,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const DESTINATION_COORDS = {
-  'Kyoto, Japan': [35.0116, 135.7681],
-  'Lisbon, Portugal': [38.7223, -9.1393],
-  'Vancouver, Canada': [49.2827, -123.1207],
-  'Cape Town, South Africa': [-33.9249, 18.4241],
-  'Paris': [48.8566, 2.3522],
-  'Tokyo': [35.6762, 139.6503],
-};
+
 
 const ACTIVITY_COORDS = {
   'Fushimi Inari Shrine': [34.9671, 135.7727],
@@ -487,28 +481,43 @@ function App() {
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
 
+  const fetchTripsFromDb = async () => {
+    if (!member?.id) return;
+    try {
+      const res = await axios.get('http://localhost:3000/api/trips', {
+        headers: { 'x-user-id': member.id }
+      });
+      setTrips(res.data);
+    } catch (err) {
+      console.error("Database sync failed", err);
+    }
+  };
+
+  // Whenever there is a successful login, trips will be fetched
+  useEffect(() => {
+    fetchTripsFromDb();
+  }, [member?.id]);
+
   const saveItinerary = (newTrip) => {
     setTrips((current) => [newTrip, ...current]);
   };
 
-  const addActivity = (tripId, activity) => {
-    setTrips((current) =>
-      current.map((trip) =>
-        trip.id === tripId
-          ? { ...trip, activities: [...trip.activities, activity] }
-          : trip
-      )
-    );
+  const addActivity = async (tripId, activity) => {
+    try {
+      await travelApi.addActivity(tripId, activity);
+      await fetchTripsFromDb(); 
+    } catch (err) {
+      console.error("Add Activity Failed", err);
+    }
   };
 
-  const removeActivity = (tripId, activityId) => {
-    setTrips((current) =>
-      current.map((trip) =>
-        trip.id === tripId
-          ? { ...trip, activities: trip.activities.filter((activity) => activity.id !== activityId) }
-          : trip
-      )
-    );
+  const removeActivity = async (tripId, activityId) => {
+    try {
+      await travelApi.removeActivity(activityId);
+      await fetchTripsFromDb(); 
+    } catch (err) {
+      console.error("Remove Activity Failed", err);
+    }
   };
 
   const saveTrip = (trip) => {
@@ -572,11 +581,15 @@ function App() {
             path="/trips/:tripId"
             element={(
               <ProtectedRoute isMember={Boolean(member)}>
-                <TripDetailsPage trips={trips} onAddActivity={addActivity} onRemoveActivity={removeActivity} />
+                {/* ✅ This now points to your new organized file! */}
+                <TripDetailsPage 
+                  trips={trips} 
+                  onAddActivity={addActivity} 
+                  onRemoveActivity={removeActivity} 
+                />
               </ProtectedRoute>
             )}
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>
