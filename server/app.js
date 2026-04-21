@@ -11,6 +11,7 @@ app.set('port', process.env.PORT || 3000);
 // set up some middleware to handle processing body requests
 app.use(express.json())
 // set up some midlleware to handle cors
+const cors = require('cors')
 app.use(cors())
 
 // base route

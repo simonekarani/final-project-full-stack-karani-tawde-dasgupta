@@ -39,7 +39,7 @@ export const travelApi = {
     
   // Recommendations from your Google API
     getRecommendations: (interest, city) => 
-    apiClient.get(`/recommendations?interest=${interest}&city=${city}`),
+    apiClient.get('/recommendations', { params: { interest, city } }),
 
   // Weather from OpenWeather API
     getWeather: (city, date) => 
