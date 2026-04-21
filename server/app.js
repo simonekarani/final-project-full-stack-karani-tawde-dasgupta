@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import bcrypt from 'bcrypt'
 import { query } from './db/postgres.js'
 
 // create the app
@@ -208,7 +209,7 @@ app.get('/api/events', async (req, res) => {
     }
 });
 
-// AUTH ENDPOINTS
+// ===== AUTHENTICATION ENDPOINTS =====
 // POST /api/signup
 app.post('/api/signup', async (req, res) => {
     const { email, password } = req.body;
@@ -219,18 +220,26 @@ app.post('/api/signup', async (req, res) => {
 
     try {
         // Check if user already exists
-        const existingUser = await query('SELECT * FROM users WHERE email = $1', [email]);
-        if (existingUser.rows.length > 0) {
-            return res.status(400).json({ error: "User already exists" });
+        const userResult = await query('SELECT id FROM users WHERE email = $1', [email]);
+        
+        if (userResult.rows.length > 0) {
+            return res.status(409).json({ error: "User already exists" });
         }
 
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
         // Create new user
-        const result = await query(
-            'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email',
-            [email, password]
+        const insertResult = await query(
+            'INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email',
+            [email, hashedPassword, 'user']
         );
 
-        res.json(result.rows[0]);
+        const user = insertResult.rows[0];
+        res.status(201).json({
+            id: user.id,
+            email: user.email
+        });
     } catch (err) {
         console.error("Signup error:", err);
         res.status(500).json({ error: "Failed to create account" });
@@ -246,23 +255,33 @@ app.post('/api/login', async (req, res) => {
     }
 
     try {
-        const result = await query(
-            'SELECT id, email FROM users WHERE email = $1 AND password = $2',
-            [email, password]
-        );
-
-        if (result.rows.length === 0) {
+        // Find user
+        const userResult = await query('SELECT id, email, password FROM users WHERE email = $1', [email]);
+        
+        if (userResult.rows.length === 0) {
             return res.status(401).json({ error: "Invalid email or password" });
         }
 
-        res.json(result.rows[0]);
+        const user = userResult.rows[0];
+
+        // Check password
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        
+        if (!passwordMatch) {
+            return res.status(401).json({ error: "Invalid email or password" });
+        }
+
+        res.json({
+            id: user.id,
+            email: user.email
+        });
     } catch (err) {
         console.error("Login error:", err);
         res.status(500).json({ error: "Login failed" });
     }
 });
 
-// TRIP MANAGEMENT ENDPOINTS
+// ===== TRIP ENDPOINTS =====
 // GET /api/trips
 app.get('/api/trips', async (req, res) => {
     const userId = req.headers['x-user-id'];
@@ -272,17 +291,35 @@ app.get('/api/trips', async (req, res) => {
     }
 
     try {
-        const result = await query(
-            `SELECT t.id, t.destination, t.start_date as "startDate", t.end_date as "endDate", t.notes,
-                    json_agg(json_build_object('id', a.id, 'name', a.name, 'location', a.location, 'date', a.date, 'notes', a.notes)) as activities
-             FROM trips t
-             LEFT JOIN activities a ON t.id = a.trip_id
-             WHERE t.user_id = $1
-             GROUP BY t.id`,
+        const tripsResult = await query(
+            `SELECT id, user_id, destination, start_date, end_date, notes 
+             FROM trips WHERE user_id = $1 ORDER BY start_date DESC`,
             [userId]
         );
 
-        res.json(result.rows);
+        // Get activities for each trip
+        const trips = await Promise.all(tripsResult.rows.map(async (trip) => {
+            const activitiesResult = await query(
+                'SELECT id, name, location, date, notes FROM activities WHERE trip_id = $1 ORDER BY date',
+                [trip.id]
+            );
+            return {
+                id: trip.id,
+                destination: trip.destination,
+                startDate: trip.start_date,
+                endDate: trip.end_date,
+                notes: trip.notes,
+                activities: activitiesResult.rows.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    location: a.location,
+                    date: a.date,
+                    notes: a.notes
+                }))
+            };
+        }));
+
+        res.json(trips);
     } catch (err) {
         console.error("Get trips error:", err);
         res.status(500).json({ error: "Failed to fetch trips" });
@@ -299,11 +336,13 @@ app.post('/api/trips', async (req, res) => {
 
     try {
         const result = await query(
-            'INSERT INTO trips (user_id, destination, start_date, end_date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id, destination, start_date as "startDate", end_date as "endDate", notes',
+            'INSERT INTO trips (user_id, destination, start_date, end_date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id',
             [user_id, destination, start_date, end_date, notes || '']
         );
 
-        res.json({ ...result.rows[0], activities: [] });
+        res.status(201).json({
+            id: result.rows[0].id
+        });
     } catch (err) {
         console.error("Create trip error:", err);
         res.status(500).json({ error: "Failed to create trip" });
@@ -315,17 +354,17 @@ app.put('/api/trips/:tripId', async (req, res) => {
     const { tripId } = req.params;
     const { destination, start_date, end_date, notes } = req.body;
 
+    if (!destination || !start_date || !end_date) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+
     try {
-        const result = await query(
-            'UPDATE trips SET destination = $1, start_date = $2, end_date = $3, notes = $4 WHERE id = $5 RETURNING id, destination, start_date as "startDate", end_date as "endDate", notes',
-            [destination, start_date, end_date, notes, tripId]
+        await query(
+            'UPDATE trips SET destination = $1, start_date = $2, end_date = $3, notes = $4 WHERE id = $5',
+            [destination, start_date, end_date, notes || '', tripId]
         );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Trip not found" });
-        }
-
-        res.json(result.rows[0]);
+        res.json({ success: true });
     } catch (err) {
         console.error("Update trip error:", err);
         res.status(500).json({ error: "Failed to update trip" });
@@ -337,12 +376,10 @@ app.delete('/api/trips/:tripId', async (req, res) => {
     const { tripId } = req.params;
 
     try {
+        // Delete activities first
         await query('DELETE FROM activities WHERE trip_id = $1', [tripId]);
-        const result = await query('DELETE FROM trips WHERE id = $1 RETURNING id', [tripId]);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Trip not found" });
-        }
+        // Then delete trip
+        await query('DELETE FROM trips WHERE id = $1', [tripId]);
 
         res.json({ success: true });
     } catch (err) {
@@ -351,7 +388,7 @@ app.delete('/api/trips/:tripId', async (req, res) => {
     }
 });
 
-// ACTIVITY ENDPOINTS
+// ===== ACTIVITY ENDPOINTS =====
 // POST /api/trips/:tripId/activities
 app.post('/api/trips/:tripId/activities', async (req, res) => {
     const { tripId } = req.params;
@@ -363,11 +400,13 @@ app.post('/api/trips/:tripId/activities', async (req, res) => {
 
     try {
         const result = await query(
-            'INSERT INTO activities (trip_id, name, location, date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, location, date, notes',
+            'INSERT INTO activities (trip_id, name, location, date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id',
             [tripId, name, location, date, notes || '']
         );
 
-        res.json(result.rows[0]);
+        res.status(201).json({
+            id: result.rows[0].id
+        });
     } catch (err) {
         console.error("Add activity error:", err);
         res.status(500).json({ error: "Failed to add activity" });
@@ -379,12 +418,7 @@ app.delete('/api/activities/:activityId', async (req, res) => {
     const { activityId } = req.params;
 
     try {
-        const result = await query('DELETE FROM activities WHERE id = $1 RETURNING id', [activityId]);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Activity not found" });
-        }
-
+        await query('DELETE FROM activities WHERE id = $1', [activityId]);
         res.json({ success: true });
     } catch (err) {
         console.error("Delete activity error:", err);
