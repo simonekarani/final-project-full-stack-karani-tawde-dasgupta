@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import { query } from './db/postgres.js'
 
 // create the app
 const app = express()
@@ -204,6 +205,190 @@ app.get('/api/events', async (req, res) => {
     } catch (err) {
         console.error("Events API Error:", err.message);
         res.status(500).json({ error: "Failed to fetch events data" });
+    }
+});
+
+// AUTH ENDPOINTS
+// POST /api/signup
+app.post('/api/signup', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    try {
+        // Check if user already exists
+        const existingUser = await query('SELECT * FROM users WHERE email = $1', [email]);
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ error: "User already exists" });
+        }
+
+        // Create new user
+        const result = await query(
+            'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email',
+            [email, password]
+        );
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Signup error:", err);
+        res.status(500).json({ error: "Failed to create account" });
+    }
+});
+
+// POST /api/login
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    try {
+        const result = await query(
+            'SELECT id, email FROM users WHERE email = $1 AND password = $2',
+            [email, password]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: "Invalid email or password" });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Login error:", err);
+        res.status(500).json({ error: "Login failed" });
+    }
+});
+
+// TRIP MANAGEMENT ENDPOINTS
+// GET /api/trips
+app.get('/api/trips', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+
+    if (!userId) {
+        return res.status(400).json({ error: "User ID is required" });
+    }
+
+    try {
+        const result = await query(
+            `SELECT t.id, t.destination, t.start_date as "startDate", t.end_date as "endDate", t.notes,
+                    json_agg(json_build_object('id', a.id, 'name', a.name, 'location', a.location, 'date', a.date, 'notes', a.notes)) as activities
+             FROM trips t
+             LEFT JOIN activities a ON t.id = a.trip_id
+             WHERE t.user_id = $1
+             GROUP BY t.id`,
+            [userId]
+        );
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Get trips error:", err);
+        res.status(500).json({ error: "Failed to fetch trips" });
+    }
+});
+
+// POST /api/trips
+app.post('/api/trips', async (req, res) => {
+    const { user_id, destination, start_date, end_date, notes } = req.body;
+
+    if (!user_id || !destination || !start_date || !end_date) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+        const result = await query(
+            'INSERT INTO trips (user_id, destination, start_date, end_date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id, destination, start_date as "startDate", end_date as "endDate", notes',
+            [user_id, destination, start_date, end_date, notes || '']
+        );
+
+        res.json({ ...result.rows[0], activities: [] });
+    } catch (err) {
+        console.error("Create trip error:", err);
+        res.status(500).json({ error: "Failed to create trip" });
+    }
+});
+
+// PUT /api/trips/:tripId
+app.put('/api/trips/:tripId', async (req, res) => {
+    const { tripId } = req.params;
+    const { destination, start_date, end_date, notes } = req.body;
+
+    try {
+        const result = await query(
+            'UPDATE trips SET destination = $1, start_date = $2, end_date = $3, notes = $4 WHERE id = $5 RETURNING id, destination, start_date as "startDate", end_date as "endDate", notes',
+            [destination, start_date, end_date, notes, tripId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Trip not found" });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Update trip error:", err);
+        res.status(500).json({ error: "Failed to update trip" });
+    }
+});
+
+// DELETE /api/trips/:tripId
+app.delete('/api/trips/:tripId', async (req, res) => {
+    const { tripId } = req.params;
+
+    try {
+        await query('DELETE FROM activities WHERE trip_id = $1', [tripId]);
+        const result = await query('DELETE FROM trips WHERE id = $1 RETURNING id', [tripId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Trip not found" });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error("Delete trip error:", err);
+        res.status(500).json({ error: "Failed to delete trip" });
+    }
+});
+
+// ACTIVITY ENDPOINTS
+// POST /api/trips/:tripId/activities
+app.post('/api/trips/:tripId/activities', async (req, res) => {
+    const { tripId } = req.params;
+    const { name, location, date, notes } = req.body;
+
+    if (!name || !location || !date) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+        const result = await query(
+            'INSERT INTO activities (trip_id, name, location, date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, location, date, notes',
+            [tripId, name, location, date, notes || '']
+        );
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Add activity error:", err);
+        res.status(500).json({ error: "Failed to add activity" });
+    }
+});
+
+// DELETE /api/activities/:activityId
+app.delete('/api/activities/:activityId', async (req, res) => {
+    const { activityId } = req.params;
+
+    try {
+        const result = await query('DELETE FROM activities WHERE id = $1 RETURNING id', [activityId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Activity not found" });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error("Delete activity error:", err);
+        res.status(500).json({ error: "Failed to delete activity" });
     }
 });
 
