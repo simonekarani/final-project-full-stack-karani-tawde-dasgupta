@@ -229,7 +229,7 @@ function AuthPage({ onAuthSuccess }) {
     setError(err.response?.data?.error || 'Authentication failed. Please try again.');
   }
 };
-  };
+  
 
   return (
     <section className="auth-panel">
