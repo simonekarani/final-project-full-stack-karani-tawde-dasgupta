@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
@@ -30,6 +30,14 @@ const INITIAL_TRIPS = [
     ],
   },
 ];
+
+const DESTINATION_COORDS = {
+  'Kyoto, Japan': [35.0116, 135.7681],
+  'Lisbon, Portugal': [38.7223, -9.1393],
+  'Vancouver, Canada': [49.2827, -123.1207],
+  'Cape Town, South Africa': [-33.9249, 18.4241],
+  'Paris': [48.8566, 2.3522],
+};
 
 delete L.Icon.Default.prototype._getIconUrl;
 
