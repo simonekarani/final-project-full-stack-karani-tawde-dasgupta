@@ -200,25 +200,35 @@ function AuthPage({ onAuthSuccess }) {
   const navigate = useNavigate();
 
   const onSubmit = async (event) => {
-    event.preventDefault();
-    setError('');
-    
-    try {
-      if (mode === 'signup') {
-        if (form.password !== form.confirmPassword) {
-          setError('Passwords do not match');
-          return;
-        }
-        const response = await travelApi.signup({ email: form.email, password: form.password });
-        onAuthSuccess(response.data);
-      } else {
-        const response = await travelApi.login({ email: form.email, password: form.password });
-        onAuthSuccess(response.data);
+  event.preventDefault();
+  setError('');
+  
+  try {
+    let response;
+    if (mode === 'signup') {
+      if (form.password !== form.confirmPassword) {
+        setError('Passwords do not match');
+        return;
       }
-      navigate('/dashboard');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Authentication failed. Please try again.');
+      response = await travelApi.signup({ email: form.email, password: form.password });
+    } else {
+      response = await travelApi.login({ email: form.email, password: form.password });
     }
+
+    // 🕵️‍♂️ THE DEBUGGER: Look at your console to see the structure!
+    console.log("Backend returned:", response.data);
+
+    // 🛠️ THE FIX: Ensure you are passing the USER object, not the whole response
+    // If your backend looks like { user: {...}, token: '...' }, use response.data.user
+    const userData = response.data.user || response.data; 
+    onAuthSuccess(userData);
+    
+    navigate('/dashboard');
+  } catch (err) {
+    console.error("Auth Error Details:", err.response?.data);
+    setError(err.response?.data?.error || 'Authentication failed. Please try again.');
+  }
+};
   };
 
   return (
