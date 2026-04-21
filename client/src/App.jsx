@@ -192,7 +192,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
     </section>
   );
 }
-/*
+
 function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' });
@@ -254,7 +254,7 @@ function AuthPage({ onAuthSuccess }) {
     </section>
   );
 }
-  */
+
 
 
 
@@ -346,7 +346,10 @@ function ProtectedRoute({ isMember, children }) {
 }
 
 function App() {
-  const [member, setMember] = useState(null);
+  const [member, setMember] = useState({ 
+  id: 1, 
+  email: 'test@lehigh.edu' 
+});
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
 
