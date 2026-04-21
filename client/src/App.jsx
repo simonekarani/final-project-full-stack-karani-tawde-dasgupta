@@ -192,7 +192,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
     </section>
   );
 }
-
+/*
 function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' });
@@ -254,6 +254,7 @@ function AuthPage({ onAuthSuccess }) {
     </section>
   );
 }
+  */
 
 
 
