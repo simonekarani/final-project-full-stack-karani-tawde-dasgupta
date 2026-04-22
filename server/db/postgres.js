@@ -9,7 +9,10 @@ const client = new Client({
   port: Number(process.env.POSTGRES_PORT),
   database: process.env.POSTGRES_DBNAME,
   user: process.env.POSTGRES_USERNAME,
-  password: process.env.POSTGRES_PASSWORD
+  password: process.env.POSTGRES_PASSWORD,
+  ssl: {
+    rejectUnauthorized: false
+  }
 })
 
 client.connect()

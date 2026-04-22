@@ -346,10 +346,7 @@ function ProtectedRoute({ isMember, children }) {
 }
 
 function App() {
-  const [member, setMember] = useState({ 
-  id: 1, 
-  email: 'test@lehigh.edu' 
-});
+  const [member, setMember] = useState(null);
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
 

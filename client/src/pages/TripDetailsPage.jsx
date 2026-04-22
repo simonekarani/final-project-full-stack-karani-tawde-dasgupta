@@ -11,12 +11,12 @@ const WEATHER_DESCRIPTIONS = {
     2: "Partly Cloudy",
     3: "Overcast",
     45: "Foggy",
+    51: "Drizzle",
     61: "Slight Rain",
-    63: "Moderate Rain",
     71: "Snowfall",
-    80: "Rain Showers",
-    95: "Thunderstorm",
+    95: "Thunderstorm"
 };
+
 
 
 function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
@@ -36,43 +36,50 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
     const [eventsLoading, setEventsLoading] = useState(false);
 
   // The weather forecast should either be real expected if trip is in the next two weeks. If the trip is taking place after the next two weeks then the api will pull historical data to display for that time of year
-    useEffect(() => {
+// TripDetailsPage.js
+
+useEffect(() => {
     const fetchTripWeather = async () => {
         if (!trip?.destination) return;
         setWeatherLoading(true);
 
-    try {
-        const city = trip.destination.split(',')[0].trim();
-        
-        // Use OpenWeather API for current weather or forecast
-        const tripDate = new Date(trip.startDate);
-        const today = new Date();
-        const diffInDays = (tripDate - today) / (1000 * 60 * 60 * 24);
-        
-        // For dates within 5 days, we can get forecast. For farther dates, we'll show current weather as reference
-        const dateToFetch = (diffInDays >= 0 && diffInDays <= 5) ? trip.startDate : null;
-        
-        const response = await travelApi.getWeather(city, dateToFetch);
-        const weatherData = response.data;
-          
-        setWeather({
-            temp: weatherData.temperature,
-            conditions: weatherData.conditions,
-            description: weatherData.description,
-            humidity: weatherData.humidity,
-            windSpeed: weatherData.windSpeed,
-            icon: weatherData.icon,
-            isForecast: weatherData.isForecast || false
-        });
+        try {
+            // 1. You need Lat/Lng. If your trip object doesn't have them, 
+            // you can use the Open-Meteo Geocoding API first:
+            const geoRes = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${trip.destination}&count=1&language=en&format=json`);
+            const { latitude, longitude } = geoRes.data.results[0];
+
+            // 2. Fetch from Open-Meteo
+            // Using 'forecast' for upcoming trips or 'archive' for historical reference
+            const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast`, {
+                params: {
+                    latitude,
+                    longitude,
+                    current: "temperature_2m,relative_humidity_2m,weather_code",
+                    temperature_unit: "fahrenheit",
+                    wind_speed_unit: "mph",
+                    timezone: "auto"
+                }
+            });
+
+            const data = weatherRes.data.current;
+            
+            setWeather({
+                temp: Math.round(data.temperature_2m),
+                conditions: WEATHER_DESCRIPTIONS[data.weather_code] || "Clear",
+                description: "Real-time data from Open-Meteo",
+                humidity: data.relative_humidity_2m,
+                isForecast: true
+            });
         } catch (err) {
-            console.error("Weather data fetch failed:", err);
+            console.error("Open-Meteo fetch failed:", err);
         } finally {
             setWeatherLoading(false);
         }
-        };
+    };
 
-        fetchTripWeather();
-    }, [trip?.destination, trip?.startDate]);
+    fetchTripWeather();
+}, [trip?.destination, trip?.startDate]);
 
     // Fetch events for the trip destination and dates
     useEffect(() => {
@@ -112,27 +119,35 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
         }
     };
 
+    
+
     const [apiError, setApiError] = useState(null);
 
-    const submitActivity = async (event) => {
+const submitActivity = async (event) => {
     event.preventDefault();
     if (!activity.name || !activity.location || !activity.date) return;
 
     setIsSubmitting(true);
-    setApiError(null); // Clear previous errors
+    setApiError(null); 
 
     try {
+        // This sends the data to your AWS RDS via your Express backend
         const response = await travelApi.addActivity(trip.id, activity);
+        
+        // This is the "Magic" step: 
+        // It updates the state in your parent component (App.js), 
+        // which flows back down to this page and refreshes the list instantly.
         onAddActivity(trip.id, response.data.activity);
+        
+        // Clear the form for the next entry
         setActivity({ name: '', location: '', date: '', notes: '' });
     } catch (err) {
-        // Check if the backend sent a specific message, otherwise use a fallback
-        const message = err.response?.data?.error || "Unable to save activity. Check your connection.";
+        const message = err.response?.data?.error || "Unable to save activity.";
         setApiError(message);
     } finally {
         setIsSubmitting(false);
     }
-    };
+};
 
     
 
