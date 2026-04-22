@@ -1,5 +1,5 @@
 import { useState, useEffect,useMemo } from 'react';
-import { useParams, Navigate } from 'react-router-dom';
+import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import { travelApi } from '../api.js';
 import axios from 'axios';
 import TripMap from '../components/TripMap';
@@ -19,8 +19,9 @@ const WEATHER_DESCRIPTIONS = {
 
 
 
-function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
+function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip }) {
     const { tripId } = useParams();
+    const navigate = useNavigate();
     const trip = trips.find((item) => String(item.id) === tripId);
 
   // States
@@ -34,6 +35,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity }) {
     const [loading, setLoading] = useState(false);
     const [events, setEvents] = useState([]);
     const [eventsLoading, setEventsLoading] = useState(false);
+    const [isDeletingTrip, setIsDeletingTrip] = useState(false);
 
   // The weather forecast should either be real expected if trip is in the next two weeks. If the trip is taking place after the next two weeks then the api will pull historical data to display for that time of year
 // TripDetailsPage.js
@@ -137,6 +139,22 @@ useEffect(() => {
         }
     };
 
+    const handleDeleteTrip = async () => {
+        const confirmed = window.confirm('Delete this trip and all of its activities?');
+        if (!confirmed) return;
+
+        setIsDeletingTrip(true);
+        try {
+            await onRemoveTrip(trip.id);
+            navigate('/dashboard');
+        } catch (err) {
+            console.error("Trip delete failed", err);
+            alert('Failed to delete trip. Please try again.');
+        } finally {
+            setIsDeletingTrip(false);
+        }
+    };
+
     // 1. Group the activities by date
     const groupedActivities = useMemo(() => {
         if (!trip?.activities) return {};
@@ -169,6 +187,15 @@ useEffect(() => {
             <div>
                 <h2 style={{ margin: 0 }}>{trip.destination}</h2>
                 <p className="muted-text" style={{ margin: '4px 0' }}>{trip.startDate} — {trip.endDate}</p>
+                <button
+                    className="danger-btn"
+                    type="button"
+                    style={{ marginTop: '8px' }}
+                    disabled={isDeletingTrip}
+                    onClick={handleDeleteTrip}
+                >
+                    {isDeletingTrip ? 'Deleting...' : 'Delete Trip'}
+                </button>
             </div>
 
             {/* WEATHER COMPONENT */}

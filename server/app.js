@@ -141,6 +141,28 @@ app.post('/api/trips', async (req, res) => {
     }
 });
 
+app.delete('/api/trips/:tripId', async (req, res) => {
+    const userId = req.headers['x-user-id'];
+    const { tripId } = req.params;
+
+    if (!userId) return res.status(400).json({ error: "User ID required" });
+
+    try {
+        const tripResult = await query(
+            'DELETE FROM travelplanner_trips WHERE id = $1 AND user_id = $2 RETURNING id',
+            [tripId, userId]
+        );
+
+        if (tripResult.rows.length === 0) {
+            return res.status(404).json({ error: "Trip not found" });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to delete trip" });
+    }
+});
+
 // ===== ACTIVITIES (Updated for travelplanner_activities) =====
 app.post('/api/trips/:tripId/activities', async (req, res) => {
     const { tripId } = req.params;

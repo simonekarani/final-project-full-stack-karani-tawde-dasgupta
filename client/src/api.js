@@ -24,8 +24,8 @@ export const travelApi = {
     updateTrip: (tripId, tripData) => 
     apiClient.put(`/trips/${tripId}`, tripData),
     
-    deleteTrip: (tripId) => 
-    apiClient.delete(`/trips/${tripId}`),
+    deleteTrip: (tripId, userId) => 
+    apiClient.delete(`/trips/${tripId}`, { headers: { 'x-user-id': userId } }),
     
   // Activity Management
     addActivity: (tripId, activityData) => 

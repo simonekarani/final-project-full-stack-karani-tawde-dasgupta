@@ -413,6 +413,17 @@ function App() {
     }
   };
 
+  const removeTrip = async (tripId) => {
+    if (!member?.id) return;
+    try {
+      await travelApi.deleteTrip(tripId, member.id);
+      setTrips((current) => current.filter((trip) => trip.id !== tripId));
+    } catch (err) {
+      console.error("Delete Trip Failed", err);
+      throw err;
+    }
+  };
+
   const saveTrip = (trip) => {
     setTrips((current) => {
       const existing = current.find(item => item.id === trip.id);
@@ -479,6 +490,7 @@ function App() {
                   trips={trips} 
                   onAddActivity={addActivity} 
                   onRemoveActivity={removeActivity} 
+                  onRemoveTrip={removeTrip}
                 />
               </ProtectedRoute>
             )}
