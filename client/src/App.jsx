@@ -296,7 +296,9 @@ function DashboardPage({ trips, memberEmail }) {
           <Link className="trip-row" to={`/trips/${trip.id}`} key={trip.id}>
             <div>
               <h3>{trip.destination}</h3>
-              <p>{trip.startDate} to {trip.endDate}</p>
+              <p>
+                {(trip.start_date || trip.startDate)?.slice(0, 10)} to {(trip.end_date || trip.endDate)?.slice(0, 10)}
+              </p>
             </div>
             <span>{trip.activities.length} activities</span>
           </Link>

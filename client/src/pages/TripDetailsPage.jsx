@@ -186,6 +186,9 @@ useEffect(() => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
             <div>
                 <h2 style={{ margin: 0 }}>{trip.destination}</h2>
+                <h4> Trip Dates: 
+                {(trip.start_date || trip.startDate)?.slice(0, 10)} to {(trip.end_date || trip.endDate)?.slice(0, 10)}
+                </h4>
                 <p className="muted-text" style={{ margin: '4px 0' }}>{trip.startDate} — {trip.endDate}</p>
                 <button
                     className="danger-btn"
