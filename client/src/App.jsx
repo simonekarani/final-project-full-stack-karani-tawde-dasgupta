@@ -11,12 +11,7 @@ import datasetDestinationOptions from './data/destinationOptions.json';
 import './App.css';
 import TripDetailsPage from './pages/TripDetailsPage';
 
-const DESTINATIONS = [
-  { id: 1, city: 'Kyoto', country: 'Japan', description: 'Temples, tea houses, and spring blossoms.', image: 'https://images.unsplash.com/photo-1492571350019-22de08371fd3?auto=format&fit=crop&w=900&q=80' },
-  { id: 2, city: 'Lisbon', country: 'Portugal', description: 'Colorful streets, coastal views, and tram rides.', image: 'https://images.unsplash.com/photo-1513735492246-483525079686?auto=format&fit=crop&w=900&q=80' },
-  { id: 3, city: 'Vancouver', country: 'Canada', description: 'Mountains, parks, and waterfront walks.', image: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?auto=format&fit=crop&w=900&q=80' },
-  { id: 4, city: 'Cape Town', country: 'South Africa', description: 'Scenic coastlines and iconic hikes.', image: 'https://images.unsplash.com/photo-1576485290814-1c72aa4bbb8e?auto=format&fit=crop&w=900&q=80' },
-];
+const DESTINATIONS = datasetDestinationOptions;
 
 const INITIAL_TRIPS = [
   {
@@ -42,7 +37,7 @@ const DESTINATION_COORDS = {
 
 const DESTINATION_OPTIONS = Array.from(
   new Set([
-    ...datasetDestinationOptions,
+    ...datasetDestinationOptions.map((destination) => destination.destination),
     ...DESTINATIONS.map((destination) => `${destination.city}, ${destination.country}`),
     ...Object.keys(DESTINATION_COORDS),
   ])
@@ -146,6 +141,12 @@ function TripMap({ trip, selectedActivity, onSelectActivity }) {
 function HomePage({ isMember, onSaveItinerary, member }) {
   const [saving, setSaving] = useState(null);
 
+  const getUnsplashImage = (destination) =>
+    `https://source.unsplash.com/900x600/?${encodeURIComponent(`${destination.city} ${destination.country} travel landmark`)}`;
+
+  const getPicsumFallback = (destination) =>
+    `https://picsum.photos/seed/${encodeURIComponent(destination.destination || `${destination.city}-${destination.country}`)}/900/600`;
+
   const handleSaveItinerary = async (destination) => {
     setSaving(destination.id);
     try {
@@ -183,7 +184,25 @@ function HomePage({ isMember, onSaveItinerary, member }) {
       <div className="card-grid">
         {DESTINATIONS.map((destination) => (
           <article className="destination-card" key={destination.id}>
-            <img src={destination.image} alt={`${destination.city} skyline`} />
+            <img
+              src={destination.image || getUnsplashImage(destination)}
+              alt={`${destination.city} skyline`}
+              onError={(event) => {
+                const { currentTarget } = event;
+                const fallbackStage = currentTarget.dataset.fallbackStage || '0';
+
+                if (fallbackStage === '0') {
+                  currentTarget.dataset.fallbackStage = '1';
+                  currentTarget.src = getUnsplashImage(destination);
+                  return;
+                }
+
+                if (fallbackStage === '1') {
+                  currentTarget.dataset.fallbackStage = '2';
+                  currentTarget.src = getPicsumFallback(destination);
+                }
+              }}
+            />
             <div className="destination-content">
               <h3>{destination.city}, {destination.country}</h3>
               <p>{destination.description}</p>
