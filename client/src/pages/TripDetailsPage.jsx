@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect,useMemo } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { travelApi } from '../api.js';
 import axios from 'axios';
@@ -119,35 +119,46 @@ useEffect(() => {
         }
     };
 
-    
+    const submitActivity = async (event) => {
+        event.preventDefault();
+        if (!activity.name || !activity.location || !activity.date) return;
 
-    const [apiError, setApiError] = useState(null);
+        setIsSubmitting(true);
+        try {
+            // Just trigger the App.js function
+            await onAddActivity(trip.id, activity);
+            
+            // Clear the form after success
+            setActivity({ name: '', location: '', date: '', notes: '' });
+        } catch (err) {
+            console.error("Submit failed", err);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
-const submitActivity = async (event) => {
-    event.preventDefault();
-    if (!activity.name || !activity.location || !activity.date) return;
-
-    setIsSubmitting(true);
-    setApiError(null); 
-
-    try {
-        // This sends the data to your AWS RDS via your Express backend
-        const response = await travelApi.addActivity(trip.id, activity);
+    // 1. Group the activities by date
+    const groupedActivities = useMemo(() => {
+        if (!trip?.activities) return {};
         
-        // This is the "Magic" step: 
-        // It updates the state in your parent component (App.js), 
-        // which flows back down to this page and refreshes the list instantly.
-        onAddActivity(trip.id, response.data.activity);
-        
-        // Clear the form for the next entry
-        setActivity({ name: '', location: '', date: '', notes: '' });
-    } catch (err) {
-        const message = err.response?.data?.error || "Unable to save activity.";
-        setApiError(message);
-    } finally {
-        setIsSubmitting(false);
-    }
-};
+        return trip.activities.reduce((groups, activity) => {
+            const date = activity.date; // Ensure this matches your DB column name
+            if (!groups[date]) groups[date] = [];
+            groups[date].push(activity);
+            return groups;
+        }, {});
+    }, [trip.activities]); // This recalculates automatically when App.js finishes the fetch
+
+    // 2. Sort the dates so the itinerary is chronological
+    const sortedDates = Object.keys(groupedActivities).sort();
+        const [apiError, setApiError] = useState(null);
+
+    const groupedRecs = recommendations.reduce((acc, rec) => {
+        const cat = rec.category || 'Other';
+        if (!acc[cat]) acc[cat] = [];
+        acc[cat].push(rec);
+        return acc;
+    }, {});
 
     
 
@@ -187,35 +198,93 @@ const submitActivity = async (event) => {
             
             {/* DISCOVERY SECTION */}
             <div className="discovery-box" style={{ background: '#f9f9f9', padding: '1.25rem', borderRadius: '10px', border: '1px solid #eee', marginBottom: '2rem' }}>
-            <h3>Discover {trip.destination}</h3>
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
-                <select value={category} onChange={(e) => setCategory(e.target.value)}>
-                <option value="museums">Museums</option>
-                <option value="cafes">Coffee Shops</option>
-                <option value="parks">Parks</option>
-                <option value="restaurants">Restaurants</option>
-                </select>
-                <button onClick={handleSearchRecs} disabled={isSearching}>
-                {isSearching ? 'Searching...' : 'Find Ideas'}
-                </button>
-            </div>
-
-            <div className="rec-list" style={{ maxHeight: '180px', overflowY: 'auto' }}>
-                {recommendations.map((rec) => (
-                <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0' }}>
-                    <div>
-                    <strong style={{ fontSize: '0.9rem' }}>{rec.name}</strong>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#666' }}>{rec.address} • ⭐ {rec.rating}</p>
-                    </div>
-                    <button className="ghost-btn" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setActivity({
-                    name: rec.name,
-                    location: rec.address,
-                    date: trip.startDate,
-                    notes: `Rating: ${rec.rating} stars. Imported from Discovery.`
-                    })}>Use</button>
+                <h3>Discover {trip.destination}</h3>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
+                    <select 
+                        value={category} 
+                        onChange={(e) => setCategory(e.target.value)}
+                        style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', flex: 1 }}
+                    >
+                        <optgroup label="Popular">
+                            <option value="tourist_attraction">Must See Sights</option>
+                            <option value="museum">Museums</option>
+                            <option value="park">Parks & Nature</option>
+                        </optgroup>
+                        <optgroup label="Food & Drink">
+                            <option value="restaurant">Restaurants</option>
+                            <option value="cafe">Coffee Shops</option>
+                            <option value="bakery">Bakeries</option>
+                            <option value="bar">Bars & Nightlife</option>
+                            <option value="brewery">Breweries</option>
+                        </optgroup>
+                        <optgroup label="Culture & Arts">
+                            <option value="art_gallery">Art Galleries</option>
+                            <option value="performing_arts_theater">Theaters</option>
+                            <option value="library">Libraries</option>
+                        </optgroup>
+                        <optgroup label="Entertainment">
+                            <option value="aquarium">Aquariums</option>
+                            <option value="zoo">Zoos</option>
+                            <option value="amusement_park">Amusement Parks</option>
+                            <option value="movie_theater">Cinemas</option>
+                        </optgroup>
+                    </select>
+                    <button 
+                        onClick={handleSearchRecs} 
+                        disabled={isSearching}
+                        style={{ padding: '8px 16px', cursor: isSearching ? 'not-allowed' : 'pointer' }}
+                    >
+                        {isSearching ? 'Searching...' : 'Find Ideas'}
+                    </button>
                 </div>
-                ))}
-            </div>
+
+                <div className="rec-list" style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px' }}>
+                    {Object.keys(groupedRecs).length > 0 ? (
+                        Object.entries(groupedRecs).map(([catName, items]) => (
+                            <div key={catName} style={{ marginBottom: '1.5rem' }}>
+                                {/* SEGMENT HEADER */}
+                                <h4 style={{ 
+                                    fontSize: '0.7rem', 
+                                    textTransform: 'uppercase', 
+                                    color: '#1976d2', 
+                                    letterSpacing: '1px',
+                                    borderBottom: '1px solid #e0e0e0',
+                                    paddingBottom: '4px',
+                                    marginBottom: '8px'
+                                }}>
+                                    {catName}
+                                </h4>
+
+                                {/* ITEMS IN CATEGORY */}
+                                {items.map((rec) => (
+                                    <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f9f9f9', alignItems: 'center' }}>
+                                        <div style={{ flex: 1, paddingRight: '10px' }}>
+                                            <strong style={{ fontSize: '0.9rem', display: 'block' }}>{rec.name}</strong>
+                                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#666' }}>{rec.address}</p>
+                                            <small style={{ color: '#f39c12' }}>★ {rec.rating}</small>
+                                        </div>
+                                        
+                                        {/* POPULATE FORM BUTTON */}
+                                        <button 
+                                            className="ghost-btn" 
+                                            style={{ padding: '6px 12px', fontSize: '0.75rem' }} 
+                                            onClick={() => setActivity({
+                                                name: rec.name,
+                                                location: rec.address,
+                                                date: '', // Keeps date empty so user picks it in the form
+                                                notes: `Imported from Discovery (${catName}). Rating: ${rec.rating} stars.`
+                                            })}
+                                        >
+                                            Use
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        ))
+                    ) : (
+                        !isSearching && <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#999', marginTop: '20px' }}>Select a category to start exploring.</p>
+                    )}
+                </div>
             </div>
 
             {/* EVENTS SECTION */}
@@ -267,17 +336,57 @@ const submitActivity = async (event) => {
             )}
             </div>
 
-            <div className="list-stack">
-            {trip.activities.map((item) => (
-                <article className="activity-row" key={item.id} style={{ padding: '12px', border: '1px solid #f0f0f0', borderRadius: '8px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                <div>
-                    <strong>{item.name}</strong>
-                    <p style={{ margin: '4px 0', fontSize: '0.85rem' }}>{item.location} • {item.date}</p>
-                    {item.notes && <small style={{ color: '#777' }}>{item.notes}</small>}
-                </div>
-                <button className="danger-btn" onClick={() => onRemoveActivity(trip.id, item.id)}>Remove</button>
-                </article>
-            ))}
+            <div className="itinerary-section" style={{ marginTop: '2rem' }}>
+                <h3 style={{ borderBottom: '2px solid #1976d2', paddingBottom: '8px', color: '#1976d2' }}>
+                    Your Itinerary
+                </h3>
+
+                {sortedDates.length === 0 ? (
+                    <p className="muted-text">No activities planned yet. Start by adding one in the sidebar!</p>
+                ) : (
+                    sortedDates.map((date) => (
+                        <div key={date} className="itinerary-day" style={{ marginBottom: '1.5rem' }}>
+                            {/* DAY HEADER */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
+                                <div style={{ 
+                                    background: '#1976d2', 
+                                    color: 'white', 
+                                    padding: '4px 12px', 
+                                    borderRadius: '16px', 
+                                    fontSize: '0.85rem', 
+                                    fontWeight: 'bold' 
+                                }}>
+                                    {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                </div>
+                                <div style={{ flex: 1, height: '1px', background: '#e0e0e0' }}></div>
+                            </div>
+
+                            {/* ACTIVITIES FOR THIS DAY */}
+                            <div style={{ paddingLeft: '20px', borderLeft: '2px solid #f0f0f0', marginLeft: '40px' }}>
+                                {groupedActivities[date].map((item) => (
+                                    <article className="activity-row" key={item.id} style={{ 
+                                        padding: '12px', 
+                                        border: '1px solid #f0f0f0', 
+                                        borderRadius: '8px', 
+                                        marginBottom: '10px', 
+                                        display: 'flex', 
+                                        justifyContent: 'space-between',
+                                        background: 'white'
+                                    }}>
+                                        <div>
+                                            <strong style={{ color: '#333' }}>{item.name}</strong>
+                                            <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>📍 {item.location}</p>
+                                            {item.notes && <small style={{ color: '#888', fontStyle: 'italic' }}>"{item.notes}"</small>}
+                                        </div>
+                                        <button className="danger-btn" style={{ padding: '4px 10px', fontSize: '0.7rem' }} onClick={() => onRemoveActivity(trip.id, item.id)}>
+                                            Remove
+                                        </button>
+                                    </article>
+                                ))}
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
 
             {/* MAP SECTION */}

@@ -23,12 +23,19 @@ app.get('/up', (req, res) => {
 });
 
 // ===== RECOMMENDATIONS (Google Places 2026) =====
+// server/app.js
+
 app.get('/api/recommendations', async (req, res) => {
     const { interest, city } = req.query;
     if (!interest || !city) return res.status(400).json({ error: "Missing parameters." });
 
     try {
         const url = 'https://places.googleapis.com/v1/places:searchText';
+        
+        // CLEANUP: Replace underscores with spaces so "art_gallery" becomes "art gallery"
+        // This helps the textQuery find better results for specific categories
+        const searchString = `${interest.replace(/_/g, ' ')} in ${city}`;
+
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -36,20 +43,30 @@ app.get('/api/recommendations', async (req, res) => {
                 'X-Goog-Api-Key': process.env.GM_API_KEY.trim(),
                 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.rating,places.types,places.location'
             },
-            body: JSON.stringify({ textQuery: `${interest} in ${city}`, maxResultCount: 5 })
+            body: JSON.stringify({ 
+                textQuery: searchString, 
+                maxResultCount: 10 // Increased from 5 to give users more variety
+            })
         });
 
         const data = await response.json();
+
+        // Check if Google returned results to prevent the "undefined" crash
+        if (!data.places) return res.json([]);
+
         const results = data.places.map(place => ({
             id: place.id,
             name: place.displayName?.text || "Unknown Name",
             address: place.formattedAddress,
             rating: place.rating || "N/A",
+            // This grabs the first "Type" and cleans it up for your UI
             category: place.types ? place.types[0].replace(/_/g, ' ') : 'Attraction',
             coordinates: place.location ? [place.location.latitude, place.location.longitude] : null
         }));
+        
         res.json(results);
     } catch (err) {
+        console.error("Discovery Error:", err);
         res.status(500).json({ error: "Failed to connect to Google Places" });
     }
 });
@@ -130,11 +147,13 @@ app.post('/api/trips/:tripId/activities', async (req, res) => {
     const { name, location, date, notes } = req.body;
     try {
         const result = await query(
-            'INSERT INTO travelplanner_activities (trip_id, name, location, date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            'INSERT INTO travelplanner_activities (trip_id, name, location, date, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
             [tripId, name, location, date, notes]
         );
-        res.status(201).json({ id: result.rows[0].id });
+        // Returning the whole row (result.rows[0]) so React can display it
+        res.status(201).json({ activity: result.rows[0] }); 
     } catch (err) {
+        console.error("DB Error:", err); // This will show the error in your terminal
         res.status(500).json({ error: "Failed to add activity" });
     }
 });
@@ -148,19 +167,6 @@ app.delete('/api/activities/:activityId', async (req, res) => {
     }
 });
 
-//add activity
-app.post('/api/activities', async (req, res) => {
-    const { name, address, rating } = req.body; // Data from Google API
-    
-    const sql = `INSERT INTO activities (name, address, rating) VALUES ($1, $2, $3) RETURNING *`;
-    
-    try {
-        const result = await query(sql, [name, address, rating]);
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        res.status(500).send("Database error");
-    }
-});
 
 //get activities
 // server/app.js
