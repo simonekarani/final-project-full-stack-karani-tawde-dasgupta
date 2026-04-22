@@ -346,9 +346,33 @@ function ProtectedRoute({ isMember, children }) {
 }
 
 function App() {
-  const [member, setMember] = useState(null);
+  // Initialize member from localStorage to avoid redirect on page load
+  const [member, setMemberState] = useState(() => {
+    const savedUser = localStorage.getItem('travelPlannerUser');
+    if (savedUser) {
+      try {
+        return JSON.parse(savedUser);
+      } catch (err) {
+        console.error('Failed to restore user from localStorage:', err);
+        localStorage.removeItem('travelPlannerUser');
+        return null;
+      }
+    }
+    return null;
+  });
+  
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
+
+  // Persist member to localStorage on change
+  const setMember = (userData) => {
+    if (userData) {
+      localStorage.setItem('travelPlannerUser', JSON.stringify(userData));
+    } else {
+      localStorage.removeItem('travelPlannerUser');
+    }
+    setMemberState(userData);
+  };
 
   const fetchTripsFromDb = async () => {
     if (!member?.id) return;
