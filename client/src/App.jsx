@@ -7,6 +7,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { travelApi } from './api.js';
+import datasetDestinationOptions from './data/destinationOptions.json';
 import './App.css';
 import TripDetailsPage from './pages/TripDetailsPage';
 
@@ -38,6 +39,14 @@ const DESTINATION_COORDS = {
   'Cape Town, South Africa': [-33.9249, 18.4241],
   'Paris': [48.8566, 2.3522],
 };
+
+const DESTINATION_OPTIONS = Array.from(
+  new Set([
+    ...datasetDestinationOptions,
+    ...DESTINATIONS.map((destination) => `${destination.city}, ${destination.country}`),
+    ...Object.keys(DESTINATION_COORDS),
+  ])
+).sort();
 
 delete L.Icon.Default.prototype._getIconUrl;
 
@@ -294,6 +303,12 @@ function TripFormPage({ trips, onSaveTrip, member }) {
     setError('');
 
     try {
+      if (!DESTINATION_OPTIONS.includes(form.destination.trim())) {
+        setError('Please select a destination from the dropdown list.');
+        setLoading(false);
+        return;
+      }
+
       if (editingTrip) {
         await travelApi.updateTrip(editingTrip.id, {
           destination: form.destination,
@@ -327,7 +342,18 @@ function TripFormPage({ trips, onSaveTrip, member }) {
       {error && <p style={{ color: 'red' }}>{error}</p>}
       <form onSubmit={onSubmit}>
         <label>Destination</label>
-        <input required value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} />
+        <input
+          required
+          list="destination-options"
+          value={form.destination}
+          placeholder="Search and select a destination"
+          onChange={(e) => setForm({ ...form, destination: e.target.value })}
+        />
+        <datalist id="destination-options">
+          {DESTINATION_OPTIONS.map((destination) => (
+            <option key={destination} value={destination} />
+          ))}
+        </datalist>
         <label>Start date</label>
         <input required type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
         <label>End date</label>
