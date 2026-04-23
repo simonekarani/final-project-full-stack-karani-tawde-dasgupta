@@ -250,3 +250,36 @@ textarea {
   margin: 0.35rem 0;
   color: #5f7770;
 }
+
+.save-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 44, 40, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 1rem;
+}
+
+.save-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid #dce8e3;
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 20px 50px rgba(25, 45, 38, 0.18);
+}
+
+.save-modal h2 {
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+  color: #2c4942;
+}
+
+.save-modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}

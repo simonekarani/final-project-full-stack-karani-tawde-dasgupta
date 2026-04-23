@@ -127,41 +127,78 @@ function TripMap({ trip, selectedActivity, onSelectActivity }) {
 }
 
 function HomePage({ isMember, onSaveItinerary, member }) {
-  const [saving, setSaving] = useState(null);
+  const [saving, setSaving] = useState(null)
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [selectedDestination, setSelectedDestination] = useState(null)
+  const [tripDates, setTripDates] = useState({
+    startDate: '',
+    endDate: ''
+  })
 
   const getUnsplashImage = (destination) =>
-    `https://source.unsplash.com/900x600/?${encodeURIComponent(`${destination.city} ${destination.country} travel landmark`)}`;
+    `https://source.unsplash.com/900x600/?${encodeURIComponent(`${destination.city} ${destination.country} travel landmark`)}`
 
   const getPicsumFallback = (destination) =>
-    `https://picsum.photos/seed/${encodeURIComponent(destination.destination || `${destination.city}-${destination.country}`)}/900/600`;
+    `https://picsum.photos/seed/${encodeURIComponent(destination.destination || `${destination.city}-${destination.country}`)}/900/600`
 
-  const handleSaveItinerary = async (destination) => {
-    setSaving(destination.id);
+  const openSaveModal = (destination) => {
+    setSelectedDestination(destination)
+    setTripDates({
+      startDate: '',
+      endDate: ''
+    })
+    setShowSaveModal(true)
+  }
+
+  const closeSaveModal = () => {
+    setShowSaveModal(false)
+    setSelectedDestination(null)
+    setTripDates({
+      startDate: '',
+      endDate: ''
+    })
+  }
+
+  const handleConfirmSave = async () => {
+    if (!selectedDestination || !tripDates.startDate || !tripDates.endDate) {
+      alert('Please select both start and end dates.')
+      return
+    }
+
+    if (tripDates.endDate < tripDates.startDate) {
+      alert('End date cannot be before start date.')
+      return
+    }
+
+    setSaving(selectedDestination.id)
+
     try {
       const response = await travelApi.createTrip({
         user_id: member?.id,
-        destination: `${destination.city}, ${destination.country}`,
-        start_date: '2026-06-01',
-        end_date: '2026-06-05',
-        notes: `Saved from destination card for ${destination.city}.`
-      });
+        destination: `${selectedDestination.city}, ${selectedDestination.country}`,
+        start_date: tripDates.startDate,
+        end_date: tripDates.endDate,
+        notes: `Saved from destination card for ${selectedDestination.city}.`
+      })
 
       const newTrip = {
         id: response.data.id,
-        destination: `${destination.city}, ${destination.country}`,
-        startDate: '2026-06-01',
-        endDate: '2026-06-05',
-        notes: `Saved from destination card for ${destination.city}.`,
+        destination: `${selectedDestination.city}, ${selectedDestination.country}`,
+        startDate: tripDates.startDate,
+        endDate: tripDates.endDate,
+        notes: `Saved from destination card for ${selectedDestination.city}.`,
         activities: [],
-      };
-      onSaveItinerary(newTrip);
+      }
+
+      onSaveItinerary(newTrip)
+      closeSaveModal()
     } catch (err) {
-      alert('Failed to save itinerary. Please try again.');
-      console.error(err);
+      alert('Failed to save itinerary. Please try again.')
+      console.error(err)
     } finally {
-      setSaving(null);
+      setSaving(null)
     }
-  };
+  }
 
   return (
     <section>
@@ -169,6 +206,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
         <h1>Plan meaningful trips with less stress.</h1>
         <p>Browse destinations, curate activities, and keep your itinerary organized in one calm workspace.</p>
       </div>
+
       <div className="card-grid">
         {DESTINATIONS.map((destination) => (
           <article className="destination-card" key={destination.id}>
@@ -176,26 +214,31 @@ function HomePage({ isMember, onSaveItinerary, member }) {
               src={destination.image || getUnsplashImage(destination)}
               alt={`${destination.city} skyline`}
               onError={(event) => {
-                const { currentTarget } = event;
-                const fallbackStage = currentTarget.dataset.fallbackStage || '0';
+                const { currentTarget } = event
+                const fallbackStage = currentTarget.dataset.fallbackStage || '0'
 
                 if (fallbackStage === '0') {
-                  currentTarget.dataset.fallbackStage = '1';
-                  currentTarget.src = getUnsplashImage(destination);
-                  return;
+                  currentTarget.dataset.fallbackStage = '1'
+                  currentTarget.src = getUnsplashImage(destination)
+                  return
                 }
 
                 if (fallbackStage === '1') {
-                  currentTarget.dataset.fallbackStage = '2';
-                  currentTarget.src = getPicsumFallback(destination);
+                  currentTarget.dataset.fallbackStage = '2'
+                  currentTarget.src = getPicsumFallback(destination)
                 }
               }}
             />
+
             <div className="destination-content">
               <h3>{destination.city}, {destination.country}</h3>
               <p>{destination.description}</p>
+
               {isMember ? (
-                <button onClick={() => handleSaveItinerary(destination)} disabled={saving === destination.id}>
+                <button
+                  onClick={() => openSaveModal(destination)}
+                  disabled={saving === destination.id}
+                >
                   {saving === destination.id ? 'Saving...' : 'Save itinerary'}
                 </button>
               ) : (
@@ -205,8 +248,46 @@ function HomePage({ isMember, onSaveItinerary, member }) {
           </article>
         ))}
       </div>
+
+      {showSaveModal && selectedDestination && (
+        <div className="save-modal-overlay">
+          <div className="save-modal">
+            <h2>Save itinerary</h2>
+            <p className="muted-text">
+              {selectedDestination.city}, {selectedDestination.country}
+            </p>
+
+            <label>Start date</label>
+            <input
+              type="date"
+              value={tripDates.startDate}
+              onChange={(e) =>
+                setTripDates({ ...tripDates, startDate: e.target.value })
+              }
+            />
+
+            <label>End date</label>
+            <input
+              type="date"
+              value={tripDates.endDate}
+              onChange={(e) =>
+                setTripDates({ ...tripDates, endDate: e.target.value })
+              }
+            />
+
+            <div className="save-modal-actions">
+              <button onClick={handleConfirmSave}>
+                Confirm Save
+              </button>
+              <button className="ghost-btn" onClick={closeSaveModal}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
-  );
+  )
 }
 
 function AuthPage({ onAuthSuccess }) {
