@@ -424,24 +424,27 @@ useEffect(() => {
             <h3>Trip Map</h3>
             <TripMap
                 destination={{
-                    name: trip.destination,
-                    coordinates: [40.7128, -74.0060] // Default to NYC, could be enhanced with geocoding
+                    name: trip.destination
                 }}
-                attractions={recommendations.filter(rec => rec.coordinates).map(rec => ({
+                attractions={(recommendations || [])
+                    .filter((rec) => rec.coordinates && Array.isArray(rec.coordinates))
+                    .map((rec) => ({
                     id: rec.id,
                     name: rec.name,
                     location: rec.address,
                     coordinates: rec.coordinates
-                }))}
-                activities={trip.activities.filter(activity => activity.location).map(activity => ({
+                    }))}
+                activities={(trip.activities || []).map((activity) => ({
                     id: activity.id,
                     name: activity.name,
                     location: activity.location,
                     date: activity.date,
-                    coordinates: [40.7128, -74.0060] // Default coordinates, could be enhanced
+                    notes: activity.notes,
+                    latitude: activity.latitude,
+                    longitude: activity.longitude
                 }))}
-                onMarkerClick={(item) => console.log('Clicked marker:', item)}
-            />
+                onMarkerClick={(item) => console.log('clicked marker:', item)}
+                />
             </div>
         </div>
 

@@ -13,19 +13,7 @@ import TripDetailsPage from './pages/TripDetailsPage';
 
 const DESTINATIONS = datasetDestinationOptions;
 
-const INITIAL_TRIPS = [
-  {
-    id: 101,
-    destination: 'Kyoto, Japan',
-    startDate: '2026-05-10',
-    endDate: '2026-05-16',
-    notes: 'Book tea ceremony by day 2.',
-    activities: [
-      { id: 1, name: 'Fushimi Inari Shrine', location: 'Kyoto', date: '2026-05-11', notes: 'Go early morning for fewer crowds.' },
-      { id: 2, name: 'Arashiyama Bamboo Grove', location: 'Kyoto', date: '2026-05-12', notes: 'Pair with monkey park visit.' },
-    ],
-  },
-];
+const INITIAL_TRIPS = [];
 
 const DESTINATION_COORDS = {
   'Kyoto, Japan': [35.0116, 135.7681],

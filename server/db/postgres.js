@@ -12,21 +12,36 @@ const client = new Client({
   password: process.env.POSTGRES_PASSWORD,
   ssl: {
     rejectUnauthorized: false
-  }
+  },
+  connectionTimeoutMillis: 10000,
+  query_timeout: 10000,
+  statement_timeout: 10000
 })
 
 client.connect()
+  .then(() => {
+    console.log('connected to postgres')
+  })
+  .catch((err) => {
+    console.error('postgres connection failed')
+    console.error(err)
+  })
+
+client.on('error', (err) => {
+  console.error('postgres client error')
+  console.error(err)
+})
 
 export const query = async (text, values) => {
   try {
     const now = new Date()
-    console.log("query to be executed:", text)
+    console.log('query to be executed:', text)
     const res = await client.query(text, values)
     const now2 = new Date()
     console.log(`it took ${now2 - now}ms to run`)
     return res
   } catch (err) {
-    console.error("Problem executing query")
+    console.error('Problem executing query')
     console.error(err)
     throw err
   }
