@@ -35,6 +35,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip 
     const [loading, setLoading] = useState(false);
     const [events, setEvents] = useState([]);
     const [eventsLoading, setEventsLoading] = useState(false);
+    const [eventsMeta, setEventsMeta] = useState({ source: null, message: null, predicthqConfigured: null });
     const [isDeletingTrip, setIsDeletingTrip] = useState(false);
 
   // The weather forecast should either be real expected if trip is in the next two weeks. If the trip is taking place after the next two weeks then the api will pull historical data to display for that time of year
@@ -83,26 +84,49 @@ useEffect(() => {
     fetchTripWeather();
 }, [trip?.destination, trip?.startDate]);
 
-    // Fetch events for the trip destination and dates
+    // Fetch events for the trip destination and dates (PredictHQ via backend)
     useEffect(() => {
         const fetchTripEvents = async () => {
-            if (!trip?.destination || !trip?.startDate || !trip?.endDate) return;
+            if (!trip?.destination) return;
+            const start = (trip.start_date || trip.startDate)?.slice(0, 10);
+            const end = (trip.end_date || trip.endDate)?.slice(0, 10);
+            if (!start || !end) return;
+
             setEventsLoading(true);
+            setEventsMeta({ source: null, message: null, predicthqConfigured: null });
 
             try {
-                const city = trip.destination.split(',')[0].trim();
-                const response = await travelApi.getEvents(city, trip.startDate, trip.endDate);
+                const response = await travelApi.getEvents(trip.destination, start, end);
                 setEvents(response.data.events || []);
+                setEventsMeta({
+                    source: response.data.source || null,
+                    message: response.data.message || null,
+                    predicthqConfigured: response.data.predicthqConfigured
+                });
             } catch (err) {
                 console.error("Events data fetch failed:", err);
                 setEvents([]);
+                setEventsMeta({ source: null, message: null, predicthqConfigured: null });
             } finally {
                 setEventsLoading(false);
             }
         };
 
         fetchTripEvents();
-    }, [trip?.destination, trip?.startDate, trip?.endDate]);
+    }, [trip?.destination, trip?.startDate, trip?.endDate, trip?.start_date, trip?.end_date]);
+
+    const groupedActivities = useMemo(() => {
+        if (!trip?.activities) return {};
+
+        return trip.activities.reduce((groups, activity) => {
+            const date = activity.date;
+            if (!groups[date]) groups[date] = [];
+            groups[date].push(activity);
+            return groups;
+        }, {});
+    }, [trip?.activities]);
+
+    const sortedDates = Object.keys(groupedActivities).sort();
 
     if (!trip) return <Navigate to="/dashboard" replace />;
 
@@ -154,22 +178,6 @@ useEffect(() => {
             setIsDeletingTrip(false);
         }
     };
-
-    // 1. Group the activities by date
-    const groupedActivities = useMemo(() => {
-        if (!trip?.activities) return {};
-        
-        return trip.activities.reduce((groups, activity) => {
-            const date = activity.date; // Ensure this matches your DB column name
-            if (!groups[date]) groups[date] = [];
-            groups[date].push(activity);
-            return groups;
-        }, {});
-    }, [trip.activities]); // This recalculates automatically when App.js finishes the fetch
-
-    // 2. Sort the dates so the itinerary is chronological
-    const sortedDates = Object.keys(groupedActivities).sort();
-        const [apiError, setApiError] = useState(null);
 
     const groupedRecs = recommendations.reduce((acc, rec) => {
         const cat = rec.category || 'Other';
@@ -320,6 +328,9 @@ useEffect(() => {
             {/* EVENTS SECTION */}
             <div className="events-box" style={{ background: '#fff8f0', padding: '1.25rem', borderRadius: '10px', border: '1px solid #ffe0b2', marginBottom: '2rem' }}>
             <h3>Events in {trip.destination}</h3>
+            {eventsMeta.message && (
+                <p className="muted-text" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{eventsMeta.message}</p>
+            )}
             {eventsLoading ? (
                 <p>Loading events...</p>
             ) : events.length > 0 ? (
@@ -331,7 +342,7 @@ useEffect(() => {
                         <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>
                             {event.date} {event.time && `at ${event.time}`} • {event.venue}
                         </p>
-                        {event.genre && <small style={{ color: '#888' }}>Genre: {event.genre}</small>}
+                        {event.genre && <small style={{ color: '#888' }}>{event.source === 'predicthq' ? 'Category' : 'Genre'}: {event.genre}</small>}
                         {event.priceRange && <p style={{ margin: '2px 0', fontSize: '0.75rem', color: '#666' }}>Price: {event.priceRange}</p>}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -354,7 +365,7 @@ useEffect(() => {
                                 rel="noopener noreferrer"
                                 style={{ fontSize: '0.75rem', color: '#1976d2', textDecoration: 'none' }}
                             >
-                                Get Tickets
+                                {event.source === 'predicthq' ? 'More info' : 'Get Tickets'}
                             </a>
                         )}
                     </div>
@@ -362,7 +373,18 @@ useEffect(() => {
                 ))}
                 </div>
             ) : (
-                <p>No events found for your trip dates.</p>
+                <div>
+                    <p>No events found for your trip dates.</p>
+                    {eventsMeta.message && (
+                        <p className="muted-text" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{eventsMeta.message}</p>
+                    )}
+                    {eventsMeta.predicthqConfigured && eventsMeta.source === 'predicthq' && !eventsMeta.message && (
+                        <p className="muted-text" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                            PredictHQ returned no events for this area and date range. Coverage depends on your PredictHQ plan; see{' '}
+                            <a href="https://docs.predicthq.com/api/events/search-events/" target="_blank" rel="noopener noreferrer">Search Events</a>.
+                        </p>
+                    )}
+                </div>
             )}
             </div>
 

@@ -45,7 +45,13 @@ export const travelApi = {
     getWeather: (city, date) => 
     apiClient.get(`/weather?city=${city}&date=${date || ''}`),
 
-  // Events from Ticketmaster API
-    getEvents: (city, startDate, endDate) => 
-    apiClient.get(`/events?city=${city}&startDate=${startDate || ''}&endDate=${endDate || ''}`),
+  // Events: PredictHQ (server) by destination + trip dates
+    getEvents: (destination, startDate, endDate) =>
+    apiClient.get('/events', {
+      params: {
+        destination,
+        startDate: startDate || '',
+        endDate: endDate || ''
+      }
+    }),
 };

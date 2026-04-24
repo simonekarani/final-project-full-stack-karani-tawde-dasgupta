@@ -145,51 +145,204 @@ app.get('/api/weather', async (req, res) => {
   }
 })
 
-// ===== EVENTS =====
-app.get('/api/events', async (req, res) => {
-  const { city, startDate, endDate } = req.query
+// ===== EVENTS (PredictHQ) =====
 
-  if (!city) {
-    return res.status(400).json({ error: 'City parameter is required' })
+async function geocodeDestinationLabel(label) {
+  if (!label?.trim()) return null
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(label.trim())}&count=1&language=en&format=json`
+  const response = await fetch(url)
+  const data = await response.json()
+  const hit = data.results?.[0]
+  if (!hit) return null
+  return {
+    lat: hit.latitude,
+    lon: hit.longitude,
+    country: hit.country_code || null,
+    label: hit.name
+  }
+}
+
+function mapPredictHqEvent(event) {
+  const venueEntity = event.entities?.find((e) => e.type === 'venue')
+  const addr =
+    event.geo?.address?.formatted_address ||
+    venueEntity?.formatted_address ||
+    null
+  const locality =
+    event.geo?.address?.locality ||
+    event.geo?.address?.region ||
+    venueEntity?.name ||
+    'TBD'
+
+  let date = ''
+  let time = null
+  if (event.start_local) {
+    const [d, rest] = event.start_local.split('T')
+    date = d || event.start_local.slice(0, 10)
+    if (rest) time = rest.slice(0, 5)
+  } else if (event.start) {
+    date = event.start.slice(0, 10)
+  }
+
+  return {
+    id: event.id,
+    name: event.title,
+    date,
+    time,
+    venue: venueEntity?.name || locality,
+    address: addr,
+    city: locality,
+    genre: event.category || null,
+    priceRange: null,
+    url: null,
+    image: null,
+    description: event.description
+      ? String(event.description).replace(/<[^>]+>/g, '').slice(0, 400)
+      : null,
+    source: 'predicthq'
+  }
+}
+
+async function fetchPredictHqEvents({ lat, lon, country, activeGte, activeLte }) {
+  const token = process.env.PREDICTHQ_API_KEY?.trim()
+  if (!token) return { events: [], rawCount: 0, skipped: true }
+
+  const params = new URLSearchParams({
+    limit: '25',
+    sort: '-rank',
+    'active.gte': activeGte,
+    'active.lte': activeLte,
+    within: `60km@${lat},${lon}`
+  })
+
+  if (country && /^[A-Za-z]{2}$/.test(country)) {
+    params.set('country', country.toUpperCase())
+  }
+
+  const phqUrl = `https://api.predicthq.com/v1/events/?${params.toString()}`
+  const response = await fetch(phqUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json'
+    }
+  })
+
+  let data = {}
+  try {
+    data = await response.json()
+  } catch {
+    /* non-JSON error body */
+  }
+
+  if (!response.ok) {
+    const msg = data.detail || data.message || data.error_description || 'PredictHQ error'
+    console.error('PredictHQ events error:', response.status, msg)
+    return { events: [], rawCount: 0, error: msg, status: response.status }
+  }
+
+  const results = Array.isArray(data.results) ? data.results : []
+  return {
+    events: results.map(mapPredictHqEvent),
+    rawCount: typeof data.count === 'number' ? data.count : results.length
+  }
+}
+
+async function fetchTicketmasterEvents(city, startDate, endDate) {
+  const key = process.env.TICKETMASTER_API_KEY?.trim()
+  if (!key || key === 'ticketmaster_api_key') return []
+
+  let url = `https://app.ticketmaster.com/discovery/v2/events.json?city=${encodeURIComponent(city)}&apikey=${key}&size=20`
+  if (startDate && endDate) {
+    url += `&startDateTime=${startDate}T00:00:00Z&endDateTime=${endDate}T23:59:59Z`
+  } else if (startDate) {
+    url += `&startDateTime=${startDate}T00:00:00Z`
+  }
+
+  const response = await fetch(url)
+  const data = await response.json()
+  if (!response.ok) return []
+
+  return (
+    data._embedded?.events?.map((event) => ({
+      id: event.id,
+      name: event.name,
+      date: event.dates.start.localDate,
+      time: event.dates.start.localTime || null,
+      venue: event._embedded?.venues?.[0]?.name || 'TBD',
+      address: event._embedded?.venues?.[0]?.address?.line1 || null,
+      city: event._embedded?.venues?.[0]?.city?.name || city,
+      genre: event.classifications?.[0]?.genre?.name || null,
+      priceRange: event.priceRanges
+        ? `${event.priceRanges[0].min}-${event.priceRanges[0].max} ${event.priceRanges[0].currency}`
+        : null,
+      url: event.url,
+      image: event.images?.find((img) => img.width > 500)?.url || event.images?.[0]?.url,
+      description: event.info || null,
+      source: 'ticketmaster'
+    })) || []
+  )
+}
+
+app.get('/api/events', async (req, res) => {
+  const destination = (req.query.destination || req.query.city || '').trim()
+  const { startDate, endDate } = req.query
+
+  if (!destination) {
+    return res.status(400).json({ error: 'destination (or city) query parameter is required' })
+  }
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required (YYYY-MM-DD)' })
   }
 
   try {
-    let url = `https://app.ticketmaster.com/discovery/v2/events.json?city=${encodeURIComponent(city)}&apikey=${process.env.TICKETMASTER_API_KEY}&size=20`
-
-    if (startDate && endDate) {
-      url += `&startDateTime=${startDate}T00:00:00Z&endDateTime=${endDate}T23:59:59Z`
-    } else if (startDate) {
-      url += `&startDateTime=${startDate}T00:00:00Z`
+    const geo = await geocodeDestinationLabel(destination)
+    if (!geo) {
+      return res.json({
+        events: [],
+        total: 0,
+        message: 'Could not geocode destination for event search.',
+        source: null,
+        predicthqConfigured: Boolean(process.env.PREDICTHQ_API_KEY?.trim())
+      })
     }
 
-    const response = await fetch(url)
-    const data = await response.json()
+    const phq = await fetchPredictHqEvents({
+      lat: geo.lat,
+      lon: geo.lon,
+      country: geo.country,
+      activeGte: startDate,
+      activeLte: endDate
+    })
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data.message || 'Events API error' })
+    let events = phq.events
+    let total = phq.rawCount ?? events.length
+    let source = 'predicthq'
+    const predicthqConfigured = Boolean(process.env.PREDICTHQ_API_KEY?.trim())
+    let message = null
+
+    if (events.length === 0) {
+      const cityPart = destination.split(',')[0].trim()
+      const tm = await fetchTicketmasterEvents(cityPart, startDate, endDate)
+      if (tm.length > 0) {
+        events = tm
+        total = tm.length
+        source = 'ticketmaster'
+      } else if (!predicthqConfigured) {
+        message =
+          'PredictHQ is not configured. Add PREDICTHQ_API_KEY to the server .env file (Bearer token from PredictHQ).'
+      } else if (phq.error) {
+        message = `PredictHQ request failed (${phq.status || 'error'}). ${phq.error}`
+      }
     }
-
-    const events =
-      data._embedded?.events?.map((event) => ({
-        id: event.id,
-        name: event.name,
-        date: event.dates.start.localDate,
-        time: event.dates.start.localTime || null,
-        venue: event._embedded?.venues?.[0]?.name || 'TBD',
-        address: event._embedded?.venues?.[0]?.address?.line1 || null,
-        city: event._embedded?.venues?.[0]?.city?.name || city,
-        genre: event.classifications?.[0]?.genre?.name || null,
-        priceRange: event.priceRanges
-          ? `${event.priceRanges[0].min}-${event.priceRanges[0].max} ${event.priceRanges[0].currency}`
-          : null,
-        url: event.url,
-        image: event.images?.find((img) => img.width > 500)?.url || event.images?.[0]?.url,
-        description: event.info || null
-      })) || []
 
     res.json({
       events,
-      total: data.page?.totalElements || events.length
+      total,
+      source,
+      geocodedAs: geo.label,
+      predicthqConfigured,
+      message
     })
   } catch (err) {
     console.error('Events API Error:', err)
