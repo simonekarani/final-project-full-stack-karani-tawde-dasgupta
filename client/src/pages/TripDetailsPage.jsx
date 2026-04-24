@@ -43,46 +43,66 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip 
 
 useEffect(() => {
     const fetchTripWeather = async () => {
-        if (!trip?.destination) return;
+        // Handle both underscore and camelCase date naming
+        const startDate = trip?.start_date || trip?.startDate;
+        const endDate = trip?.end_date || trip?.endDate;
+
+        if (!trip?.destination || !startDate) return;
         setWeatherLoading(true);
 
         try {
-            // 1. You need Lat/Lng. If your trip object doesn't have them, 
-            // you can use the Open-Meteo Geocoding API first:
-            const geoRes = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${trip.destination}&count=1&language=en&format=json`);
+            // 1. Get Coordinates
+            const geoRes = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${trip.destination}&count=1`);
             const { latitude, longitude } = geoRes.data.results[0];
 
-            // 2. Fetch from Open-Meteo
-            // Using 'forecast' for upcoming trips or 'archive' for historical reference
-            const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast`, {
-                params: {
-                    latitude,
-                    longitude,
-                    current: "temperature_2m,relative_humidity_2m,weather_code",
-                    temperature_unit: "fahrenheit",
-                    wind_speed_unit: "mph",
-                    timezone: "auto"
-                }
-            });
+            // 2. Logic: If trip is > 14 days away, use historical averages from last year
+            const today = new Date();
+            const tripStart = new Date(startDate);
+            const isTooFarOut = (tripStart - today) > (14 * 24 * 60 * 60 * 1000);
 
-            const data = weatherRes.data.current;
+            let apiUrl = "https://api.open-meteo.com/v1/forecast";
+            let params = {
+                latitude,
+                longitude,
+                temperature_unit: "fahrenheit",
+                timezone: "auto"
+            };
+
+            if (isTooFarOut) {
+                // Shift dates back 1 year to get "Typical" weather
+                const lastYearStart = new Date(tripStart);
+                lastYearStart.setFullYear(lastYearStart.getFullYear() - 1);
+                
+                apiUrl = "https://archive-api.open-meteo.com/v1/archive";
+                params.start_date = lastYearStart.toISOString().split('T')[0];
+                params.end_date = lastYearStart.toISOString().split('T')[0]; // Just get the start day's average
+                params.daily = "temperature_2m_max,weather_code";
+            } else {
+                // Use actual forecast
+                params.start_date = startDate;
+                params.end_date = endDate;
+                params.daily = "temperature_2m_max,weather_code";
+            }
+
+            const weatherRes = await axios.get(apiUrl, { params });
+            const dailyData = weatherRes.data.daily;
             
             setWeather({
-                temp: Math.round(data.temperature_2m),
-                conditions: WEATHER_DESCRIPTIONS[data.weather_code] || "Clear",
-                description: "Real-time data from Open-Meteo",
-                humidity: data.relative_humidity_2m,
-                isForecast: true
+                temp: Math.round(dailyData.temperature_2m_max[0]),
+                conditions: WEATHER_DESCRIPTIONS[dailyData.weather_code[0]] || "Clear",
+                description: isTooFarOut ? "Based on last year's data" : "Official Forecast",
+                isForecast: !isTooFarOut
             });
+
         } catch (err) {
-            console.error("Open-Meteo fetch failed:", err);
+            console.error("Weather fetch failed:", err);
         } finally {
             setWeatherLoading(false);
         }
     };
 
     fetchTripWeather();
-}, [trip?.destination, trip?.startDate]);
+}, [trip?.destination, trip?.start_date, trip?.startDate]);
 
     // Fetch events for the trip destination and dates (PredictHQ via backend)
     useEffect(() => {
@@ -194,10 +214,10 @@ useEffect(() => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
             <div>
                 <h2 style={{ margin: 0 }}>{trip.destination}</h2>
-                <h4> Trip Dates: 
-                {(trip.start_date || trip.startDate)?.slice(0, 10)} to {(trip.end_date || trip.endDate)?.slice(0, 10)}
+                <h4 style={{ margin: '8px 0 4px 0' }}> 
+                    Trip Dates: {(trip.start_date || trip.startDate)?.slice(0, 10)} to {(trip.end_date || trip.endDate)?.slice(0, 10)}
                 </h4>
-                <p className="muted-text" style={{ margin: '4px 0' }}>{trip.startDate} — {trip.endDate}</p>
+                
                 <button
                     className="danger-btn"
                     type="button"
@@ -209,27 +229,29 @@ useEffect(() => {
                 </button>
             </div>
 
+        
             {/* WEATHER COMPONENT */}
             <div className="weather-card" style={{ background: '#f0f4f8', padding: '12px', borderRadius: '12px', minWidth: '140px', textAlign: 'center' }}>
                 {weatherLoading ? (
-                <small>Syncing weather...</small>
+                    <small>Syncing weather...</small>
                 ) : weather ? (
-                <>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#2c3e50' }}>
-                    {weather.temp}°F
-                    </div>
-                    <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#546e7a' }}>
-                    {weather.conditions}
-                    </div>
-                    <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '4px' }}>
-                    {weather.description}
-                    </div>
-                    <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '2px', textTransform: 'uppercase' }}>
-                    {weather.isForecast ? "Forecast" : "Current"}
-                    </div>
-                </>
+                    <>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#2c3e50' }}>
+                            {weather.temp}°F
+                        </div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#546e7a' }}>
+                            {weather.conditions}
+                        </div>
+                        <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '4px' }}>
+                            {weather.description}
+                        </div>
+                        {/* 🛠️ UPDATED LOGIC HERE */}
+                        <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            {weather.isForecast ? "Live Forecast" : "Seasonal Average"}
+                        </div>
+                    </>
                 ) : (
-                <small>Weather N/A</small>
+                    <small>Weather N/A</small>
                 )}
             </div>
             </div>
