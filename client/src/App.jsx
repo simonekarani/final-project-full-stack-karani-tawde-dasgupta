@@ -292,62 +292,133 @@ function HomePage({ isMember, onSaveItinerary, member }) {
 
 function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' });
+  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', role: 'base' });
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState(''); // New state for success message
   const navigate = useNavigate();
 
   const onSubmit = async (event) => {
-  event.preventDefault();
-  setError('');
-  
-  try {
-    let response;
-    if (mode === 'signup') {
-      if (form.password !== form.confirmPassword) {
-        setError('Passwords do not match');
-        return;
+    event.preventDefault();
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      if (mode === 'signup') {
+        if (form.password !== form.confirmPassword) {
+          setError('Passwords do not match');
+          return;
+        }
+
+        // 1. Call signup ONCE with the role
+        await travelApi.signup({ 
+          email: form.email, 
+          password: form.password, 
+          role: form.role 
+        });
+
+        // 2. Show success message
+        setSuccessMessage('Account created successfully!');
+
+        // 3. Wait 2 seconds then switch to login mode
+        setTimeout(() => {
+          setSuccessMessage('');
+          setMode('login');
+          setForm({ ...form, password: '', confirmPassword: '' }); // Clear passwords
+        }, 2000);
+
+      } else {
+        // LOGIN LOGIC
+        const response = await travelApi.login({ email: form.email, password: form.password });
+        
+        console.log("Backend returned:", response.data);
+        const userData = response.data.user || response.data; 
+        onAuthSuccess(userData);
+        navigate('/dashboard');
       }
-      response = await travelApi.signup({ email: form.email, password: form.password });
-    } else {
-      response = await travelApi.login({ email: form.email, password: form.password });
+    } catch (err) {
+      console.error("Auth Error Details:", err.response?.data);
+      setError(err.response?.data?.error || 'Authentication failed. Please try again.');
     }
-
-    // 🕵️‍♂️ THE DEBUGGER: Look at your console to see the structure!
-    console.log("Backend returned:", response.data);
-
-    // 🛠️ THE FIX: Ensure you are passing the USER object, not the whole response
-    // If your backend looks like { user: {...}, token: '...' }, use response.data.user
-    const userData = response.data.user || response.data; 
-    onAuthSuccess(userData);
-    
-    navigate('/dashboard');
-  } catch (err) {
-    console.error("Auth Error Details:", err.response?.data);
-    setError(err.response?.data?.error || 'Authentication failed. Please try again.');
-  }
-};
-  
+  };
 
   return (
     <section className="auth-panel">
       <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      
+      {/* Display messages */}
+      {error && <p style={{ color: 'red', fontWeight: 'bold' }}>{error}</p>}
+      {successMessage && <p style={{ color: 'green', fontWeight: 'bold' }}>{successMessage}</p>}
+      
       <form onSubmit={onSubmit}>
         <label>Email</label>
         <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        
         <label>Password</label>
         <input type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        
         {mode === 'signup' && (
           <>
+            <label>Account Type</label>
+            <select 
+              value={form.role} 
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              className="role-select"
+              style={{ marginBottom: '10px', padding: '8px', width: '100%' }}
+            >
+              <option value="base">Base (Free)</option>
+              <option value="premium">Premium (Pro)</option>
+            </select>
+
+            {/* Dynamic Plan Description */}
+            <div style={{ 
+              background: '#f0f4f8', 
+              padding: '12px', 
+              borderRadius: '6px', 
+              marginBottom: '15px', 
+              fontSize: '0.85rem',
+              lineHeight: '1.4',
+              borderLeft: form.role === 'premium' ? '4px solid #ffd700' : '4px solid #999'
+            }}>
+              {form.role === 'base' ? (
+                <div>
+                  <strong>Base Account Features:</strong>
+                  <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
+                    <li>Add up to 5 activities per trip itinerary.</li>
+                    <li>Standard trip planning tools.</li>
+                  </ul>
+                </div>
+              ) : (
+                <div>
+                  <strong>Premium Account Features: 3 Month Free-Trial</strong>
+                  <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
+                    <li><strong>Unlimited</strong> activities per trip.</li>
+                    <li><strong>Weather Insights:</strong> Local forecasts for your dates.</li>
+                    <li><strong>Real-time Recommendations:</strong> Personalized activity suggestions.</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+
             <label>Confirm Password</label>
-            <input type="password" required value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} />
+            <input 
+              type="password" 
+              required 
+              value={form.confirmPassword} 
+              onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} 
+            />
           </>
         )}
-        <button type="submit">{mode === 'login' ? 'Login' : 'Sign up'}</button>
+        
+        <button type="submit" disabled={!!successMessage}>
+          {mode === 'login' ? 'Login' : 'Sign up'}
+        </button>
       </form>
-      <button className="ghost-btn" onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>
-        {mode === 'login' ? 'Need an account? Sign up' : 'Already have an account? Login'}
-      </button>
+
+      {!successMessage && (
+        <button className="ghost-btn" onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>
+          {mode === 'login' ? 'Need an account? Sign up' : 'Already have an account? Login'}
+        </button>
+      )}
     </section>
   );
 }

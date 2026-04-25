@@ -351,8 +351,10 @@ app.get('/api/events', async (req, res) => {
 })
 
 // ===== AUTH =====
+// ===== UPDATED SIGNUP =====
 app.post('/api/signup', async (req, res) => {
-  const { email, password } = req.body
+  // 1. Pull role from the request body
+  const { email, password, role } = req.body 
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' })
@@ -368,11 +370,16 @@ app.post('/api/signup', async (req, res) => {
       return res.status(409).json({ error: 'User exists' })
     }
 
+    // 2. Simple validation: default to 'base' if the role is missing or invalid
+    const validRoles = ['base', 'premium'];
+    const assignedRole = validRoles.includes(role) ? role : 'base';
+
     const hashedPassword = await bcrypt.hash(password, 10)
 
+    // 3. Use the assignedRole variable in the SQL query
     const result = await query(
-      'INSERT INTO travelplanner_users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email',
-      [email, hashedPassword, 'user']
+      'INSERT INTO travelplanner_users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role',
+      [email, hashedPassword, assignedRole]
     )
 
     res.status(201).json(result.rows[0])
@@ -382,6 +389,7 @@ app.post('/api/signup', async (req, res) => {
   }
 })
 
+// ===== UPDATED LOGIN =====
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body
 
@@ -390,8 +398,9 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
+    // 1. Add 'role' to the SELECT statement
     const result = await query(
-      'SELECT id, email, password FROM travelplanner_users WHERE email = $1',
+      'SELECT id, email, password, role FROM travelplanner_users WHERE email = $1',
       [email]
     )
 
@@ -405,9 +414,11 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
+    // 2. Include 'role' in the response object
     res.json({
       id: result.rows[0].id,
-      email: result.rows[0].email
+      email: result.rows[0].email,
+      role: result.rows[0].role 
     })
   } catch (err) {
     console.error('Login error:', err)
