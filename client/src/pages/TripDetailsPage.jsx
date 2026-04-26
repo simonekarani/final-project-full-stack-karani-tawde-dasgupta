@@ -1,515 +1,548 @@
-import { useState, useEffect,useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import { travelApi } from '../api.js';
-import axios from 'axios';
 import TripMap from '../components/TripMap';
 
-// the open meteo API gives weather information in numerical values which then needs to be converted for user use
-const WEATHER_DESCRIPTIONS = {
-    0: "Clear Sky",
-    1: "Mainly Clear",
-    2: "Partly Cloudy",
-    3: "Overcast",
-    45: "Foggy",
-    51: "Drizzle",
-    61: "Slight Rain",
-    71: "Snowfall",
-    95: "Thunderstorm"
-};
+function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip, member }) {
+  const { tripId } = useParams();
+  const navigate = useNavigate();
+  const trip = trips.find((item) => String(item.id) === tripId);
 
+  const isPremium = member?.role === 'premium';
+  const activityLimitReached = !isPremium && (trip?.activities?.length || 0) >= 5;
 
+  const [activity, setActivity] = useState({ name: '', location: '', date: '', notes: '' });
+  const [recommendations, setRecommendations] = useState([]);
+  const [category, setCategory] = useState('museum');
+  const [isSearching, setIsSearching] = useState(false);
+  const [weather, setWeather] = useState(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsMeta, setEventsMeta] = useState({ source: null, message: null, predicthqConfigured: null });
+  const [isDeletingTrip, setIsDeletingTrip] = useState(false);
 
-function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip }) {
-    const { tripId } = useParams();
-    const navigate = useNavigate();
-    const trip = trips.find((item) => String(item.id) === tripId);
+  const groupedActivities = useMemo(() => {
+    if (!trip?.activities) return {};
 
-  // States
-    const [activity, setActivity] = useState({ name: '', location: '', date: '', notes: '' });
-    const [recommendations, setRecommendations] = useState([]);
-    const [category, setCategory] = useState('museums');
-    const [isSearching, setIsSearching] = useState(false); 
-    const [weather, setWeather] = useState(null);
-    const [weatherLoading, setWeatherLoading] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [events, setEvents] = useState([]);
-    const [eventsLoading, setEventsLoading] = useState(false);
-    const [eventsMeta, setEventsMeta] = useState({ source: null, message: null, predicthqConfigured: null });
-    const [isDeletingTrip, setIsDeletingTrip] = useState(false);
+    return trip.activities.reduce((groups, item) => {
+      const date = item.date;
+      if (!groups[date]) groups[date] = [];
+      groups[date].push(item);
+      return groups;
+    }, {});
+  }, [trip?.activities]);
 
-  // The weather forecast should either be real expected if trip is in the next two weeks. If the trip is taking place after the next two weeks then the api will pull historical data to display for that time of year
-// TripDetailsPage.js
+  const sortedDates = Object.keys(groupedActivities).sort();
 
-useEffect(() => {
+  useEffect(() => {
     const fetchTripWeather = async () => {
-        // Handle both underscore and camelCase date naming
-        const startDate = trip?.start_date || trip?.startDate;
-        const endDate = trip?.end_date || trip?.endDate;
+      if (!trip?.destination || !member?.id || !isPremium) return;
 
-        if (!trip?.destination || !startDate) return;
-        setWeatherLoading(true);
+      const startDate = trip?.start_date || trip?.startDate;
+      if (!startDate) return;
 
-        try {
-            // 1. Get Coordinates
-            const geoRes = await axios.get(`https://geocoding-api.open-meteo.com/v1/search?name=${trip.destination}&count=1`);
-            const { latitude, longitude } = geoRes.data.results[0];
+      setWeatherLoading(true);
 
-            // 2. Logic: If trip is > 14 days away, use historical averages from last year
-            const today = new Date();
-            const tripStart = new Date(startDate);
-            const isTooFarOut = (tripStart - today) > (14 * 24 * 60 * 60 * 1000);
-
-            let apiUrl = "https://api.open-meteo.com/v1/forecast";
-            let params = {
-                latitude,
-                longitude,
-                temperature_unit: "fahrenheit",
-                timezone: "auto"
-            };
-
-            if (isTooFarOut) {
-                // Shift dates back 1 year to get "Typical" weather
-                const lastYearStart = new Date(tripStart);
-                lastYearStart.setFullYear(lastYearStart.getFullYear() - 1);
-                
-                apiUrl = "https://archive-api.open-meteo.com/v1/archive";
-                params.start_date = lastYearStart.toISOString().split('T')[0];
-                params.end_date = lastYearStart.toISOString().split('T')[0]; // Just get the start day's average
-                params.daily = "temperature_2m_max,weather_code";
-            } else {
-                // Use actual forecast
-                params.start_date = startDate;
-                params.end_date = endDate;
-                params.daily = "temperature_2m_max,weather_code";
-            }
-
-            const weatherRes = await axios.get(apiUrl, { params });
-            const dailyData = weatherRes.data.daily;
-            
-            setWeather({
-                temp: Math.round(dailyData.temperature_2m_max[0]),
-                conditions: WEATHER_DESCRIPTIONS[dailyData.weather_code[0]] || "Clear",
-                description: isTooFarOut ? "Based on last year's data" : "Official Forecast",
-                isForecast: !isTooFarOut
-            });
-
-        } catch (err) {
-            console.error("Weather fetch failed:", err);
-        } finally {
-            setWeatherLoading(false);
-        }
+      try {
+        const response = await travelApi.getWeather(trip.destination, startDate, member.id);
+        setWeather(response.data);
+      } catch (err) {
+        console.error('Weather fetch failed:', err);
+        setWeather(null);
+      } finally {
+        setWeatherLoading(false);
+      }
     };
 
     fetchTripWeather();
-}, [trip?.destination, trip?.start_date, trip?.startDate]);
+  }, [trip?.destination, trip?.start_date, trip?.startDate, member?.id, isPremium]);
 
-    // Fetch events for the trip destination and dates (PredictHQ via backend)
-    useEffect(() => {
-        const fetchTripEvents = async () => {
-            if (!trip?.destination) return;
-            const start = (trip.start_date || trip.startDate)?.slice(0, 10);
-            const end = (trip.end_date || trip.endDate)?.slice(0, 10);
-            if (!start || !end) return;
+  useEffect(() => {
+    const fetchTripEvents = async () => {
+      if (!trip?.destination || !member?.id || !isPremium) return;
 
-            setEventsLoading(true);
-            setEventsMeta({ source: null, message: null, predicthqConfigured: null });
+      const start = (trip.start_date || trip.startDate)?.slice(0, 10);
+      const end = (trip.end_date || trip.endDate)?.slice(0, 10);
 
-            try {
-                const response = await travelApi.getEvents(trip.destination, start, end);
-                setEvents(response.data.events || []);
-                setEventsMeta({
-                    source: response.data.source || null,
-                    message: response.data.message || null,
-                    predicthqConfigured: response.data.predicthqConfigured
-                });
-            } catch (err) {
-                console.error("Events data fetch failed:", err);
-                setEvents([]);
-                setEventsMeta({ source: null, message: null, predicthqConfigured: null });
-            } finally {
-                setEventsLoading(false);
-            }
-        };
+      if (!start || !end) return;
 
-        fetchTripEvents();
-    }, [trip?.destination, trip?.startDate, trip?.endDate, trip?.start_date, trip?.end_date]);
+      setEventsLoading(true);
+      setEventsMeta({ source: null, message: null, predicthqConfigured: null });
 
-    const groupedActivities = useMemo(() => {
-        if (!trip?.activities) return {};
-
-        return trip.activities.reduce((groups, activity) => {
-            const date = activity.date;
-            if (!groups[date]) groups[date] = [];
-            groups[date].push(activity);
-            return groups;
-        }, {});
-    }, [trip?.activities]);
-
-    const sortedDates = Object.keys(groupedActivities).sort();
-
-    if (!trip) return <Navigate to="/dashboard" replace />;
-
-    // Recommendation logic
-    const handleSearchRecs = async () => {
-        setIsSearching(true);
-        try {
-        const response = await axios.get(`http://localhost:3000/api/recommendations`, {
-            params: { interest: category, city: trip.destination }
+      try {
+        const response = await travelApi.getEvents(trip.destination, start, end, member.id);
+        setEvents(response.data.events || []);
+        setEventsMeta({
+          source: response.data.source || null,
+          message: response.data.message || null,
+          predicthqConfigured: response.data.predicthqConfigured
         });
-        setRecommendations(response.data);
-        } catch (err) {
-        console.error("Discovery failed", err);
-        } finally {
-        setIsSearching(false);
-        }
+      } catch (err) {
+        console.error('Events data fetch failed:', err);
+        setEvents([]);
+        setEventsMeta({ source: null, message: null, predicthqConfigured: null });
+      } finally {
+        setEventsLoading(false);
+      }
     };
 
-    const submitActivity = async (event) => {
-        event.preventDefault();
-        if (!activity.name || !activity.location || !activity.date) return;
+    fetchTripEvents();
+  }, [trip?.destination, trip?.startDate, trip?.endDate, trip?.start_date, trip?.end_date, member?.id, isPremium]);
 
-        setIsSubmitting(true);
-        try {
-            // Just trigger the App.js function
-            await onAddActivity(trip.id, activity);
-            
-            // Clear the form after success
-            setActivity({ name: '', location: '', date: '', notes: '' });
-        } catch (err) {
-            console.error("Submit failed", err);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
+  if (!trip) return <Navigate to="/dashboard" replace />;
 
-    const handleDeleteTrip = async () => {
-        const confirmed = window.confirm('Delete this trip and all of its activities?');
-        if (!confirmed) return;
+  const handleSearchRecs = async () => {
+    if (!isPremium) return;
 
-        setIsDeletingTrip(true);
-        try {
-            await onRemoveTrip(trip.id);
-            navigate('/dashboard');
-        } catch (err) {
-            console.error("Trip delete failed", err);
-            alert('Failed to delete trip. Please try again.');
-        } finally {
-            setIsDeletingTrip(false);
-        }
-    };
+    setIsSearching(true);
+    try {
+      const response = await travelApi.getRecommendations(category, trip.destination, member.id);
+      setRecommendations(response.data);
+    } catch (err) {
+      console.error('Discovery failed', err);
+      setRecommendations([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
-    const groupedRecs = recommendations.reduce((acc, rec) => {
-        const cat = rec.category || 'Other';
-        if (!acc[cat]) acc[cat] = [];
-        acc[cat].push(rec);
-        return acc;
-    }, {});
+  const submitActivity = async (event) => {
+    event.preventDefault();
 
-    
+    if (!activity.name || !activity.location || !activity.date) return;
 
-    return (
-        <section className="split-layout">
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-            <div>
-                <h2 style={{ margin: 0 }}>{trip.destination}</h2>
-                <h4 style={{ margin: '8px 0 4px 0' }}> 
-                    Trip Dates: {(trip.start_date || trip.startDate)?.slice(0, 10)} to {(trip.end_date || trip.endDate)?.slice(0, 10)}
-                </h4>
-                
-                <button
-                    className="danger-btn"
-                    type="button"
-                    style={{ marginTop: '8px' }}
-                    disabled={isDeletingTrip}
-                    onClick={handleDeleteTrip}
-                >
-                    {isDeletingTrip ? 'Deleting...' : 'Delete Trip'}
-                </button>
-            </div>
-
-        
-            {/* WEATHER COMPONENT */}
-            <div className="weather-card" style={{ background: '#f0f4f8', padding: '12px', borderRadius: '12px', minWidth: '140px', textAlign: 'center' }}>
-                {weatherLoading ? (
-                    <small>Syncing weather...</small>
-                ) : weather ? (
-                    <>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#2c3e50' }}>
-                            {weather.temp}°F
-                        </div>
-                        <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#546e7a' }}>
-                            {weather.conditions}
-                        </div>
-                        <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '4px' }}>
-                            {weather.description}
-                        </div>
-                        {/* 🛠️ UPDATED LOGIC HERE */}
-                        <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            {weather.isForecast ? "Live Forecast" : "Seasonal Average"}
-                        </div>
-                    </>
-                ) : (
-                    <small>Weather N/A</small>
-                )}
-            </div>
-            </div>
-            
-            {/* DISCOVERY SECTION */}
-            <div className="discovery-box" style={{ background: '#f9f9f9', padding: '1.25rem', borderRadius: '10px', border: '1px solid #eee', marginBottom: '2rem' }}>
-                <h3>Discover {trip.destination}</h3>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
-                    <select 
-                        value={category} 
-                        onChange={(e) => setCategory(e.target.value)}
-                        style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', flex: 1 }}
-                    >
-                        <optgroup label="Popular">
-                            <option value="tourist_attraction">Must See Sights</option>
-                            <option value="museum">Museums</option>
-                            <option value="park">Parks & Nature</option>
-                        </optgroup>
-                        <optgroup label="Food & Drink">
-                            <option value="restaurant">Restaurants</option>
-                            <option value="cafe">Coffee Shops</option>
-                            <option value="bakery">Bakeries</option>
-                            <option value="bar">Bars & Nightlife</option>
-                            <option value="brewery">Breweries</option>
-                        </optgroup>
-                        <optgroup label="Culture & Arts">
-                            <option value="art_gallery">Art Galleries</option>
-                            <option value="performing_arts_theater">Theaters</option>
-                            <option value="library">Libraries</option>
-                        </optgroup>
-                        <optgroup label="Entertainment">
-                            <option value="aquarium">Aquariums</option>
-                            <option value="zoo">Zoos</option>
-                            <option value="amusement_park">Amusement Parks</option>
-                            <option value="movie_theater">Cinemas</option>
-                        </optgroup>
-                    </select>
-                    <button 
-                        onClick={handleSearchRecs} 
-                        disabled={isSearching}
-                        style={{ padding: '8px 16px', cursor: isSearching ? 'not-allowed' : 'pointer' }}
-                    >
-                        {isSearching ? 'Searching...' : 'Find Ideas'}
-                    </button>
-                </div>
-
-                <div className="rec-list" style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px' }}>
-                    {Object.keys(groupedRecs).length > 0 ? (
-                        Object.entries(groupedRecs).map(([catName, items]) => (
-                            <div key={catName} style={{ marginBottom: '1.5rem' }}>
-                                {/* SEGMENT HEADER */}
-                                <h4 style={{ 
-                                    fontSize: '0.7rem', 
-                                    textTransform: 'uppercase', 
-                                    color: '#1976d2', 
-                                    letterSpacing: '1px',
-                                    borderBottom: '1px solid #e0e0e0',
-                                    paddingBottom: '4px',
-                                    marginBottom: '8px'
-                                }}>
-                                    {catName}
-                                </h4>
-
-                                {/* ITEMS IN CATEGORY */}
-                                {items.map((rec) => (
-                                    <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f9f9f9', alignItems: 'center' }}>
-                                        <div style={{ flex: 1, paddingRight: '10px' }}>
-                                            <strong style={{ fontSize: '0.9rem', display: 'block' }}>{rec.name}</strong>
-                                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#666' }}>{rec.address}</p>
-                                            <small style={{ color: '#f39c12' }}>★ {rec.rating}</small>
-                                        </div>
-                                        
-                                        {/* POPULATE FORM BUTTON */}
-                                        <button 
-                                            className="ghost-btn" 
-                                            style={{ padding: '6px 12px', fontSize: '0.75rem' }} 
-                                            onClick={() => setActivity({
-                                                name: rec.name,
-                                                location: rec.address,
-                                                date: '', // Keeps date empty so user picks it in the form
-                                                notes: `Imported from Discovery (${catName}). Rating: ${rec.rating} stars.`
-                                            })}
-                                        >
-                                            Use
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        ))
-                    ) : (
-                        !isSearching && <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#999', marginTop: '20px' }}>Select a category to start exploring.</p>
-                    )}
-                </div>
-            </div>
-
-            {/* EVENTS SECTION */}
-            <div className="events-box" style={{ background: '#fff8f0', padding: '1.25rem', borderRadius: '10px', border: '1px solid #ffe0b2', marginBottom: '2rem' }}>
-            <h3>Events in {trip.destination}</h3>
-            {eventsMeta.message && (
-                <p className="muted-text" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{eventsMeta.message}</p>
-            )}
-            {eventsLoading ? (
-                <p>Loading events...</p>
-            ) : events.length > 0 ? (
-                <div className="events-list" style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                {events.map((event) => (
-                    <div key={event.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #f0f0f0', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                        <strong style={{ fontSize: '0.9rem' }}>{event.name}</strong>
-                        <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>
-                            {event.date} {event.time && `at ${event.time}`} • {event.venue}
-                        </p>
-                        {event.genre && <small style={{ color: '#888' }}>{event.source === 'predicthq' ? 'Category' : 'Genre'}: {event.genre}</small>}
-                        {event.priceRange && <p style={{ margin: '2px 0', fontSize: '0.75rem', color: '#666' }}>Price: {event.priceRange}</p>}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <button 
-                            className="ghost-btn" 
-                            style={{ padding: '4px 8px', fontSize: '0.75rem' }} 
-                            onClick={() => setActivity({
-                                name: event.name,
-                                location: `${event.venue}${event.address ? `, ${event.address}` : ''}, ${event.city}`,
-                                date: event.date,
-                                notes: `Event: ${event.genre || 'General'}. ${event.description || ''}`
-                            })}
-                        >
-                            Add to Trip
-                        </button>
-                        {event.url && (
-                            <a 
-                                href={event.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                style={{ fontSize: '0.75rem', color: '#1976d2', textDecoration: 'none' }}
-                            >
-                                {event.source === 'predicthq' ? 'More info' : 'Get Tickets'}
-                            </a>
-                        )}
-                    </div>
-                    </div>
-                ))}
-                </div>
-            ) : (
-                <div>
-                    <p>No events found for your trip dates.</p>
-                    {eventsMeta.message && (
-                        <p className="muted-text" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{eventsMeta.message}</p>
-                    )}
-                    {eventsMeta.predicthqConfigured && eventsMeta.source === 'predicthq' && !eventsMeta.message && (
-                        <p className="muted-text" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                            PredictHQ returned no events for this area and date range. Coverage depends on your PredictHQ plan; see{' '}
-                            <a href="https://docs.predicthq.com/api/events/search-events/" target="_blank" rel="noopener noreferrer">Search Events</a>.
-                        </p>
-                    )}
-                </div>
-            )}
-            </div>
-
-            <div className="itinerary-section" style={{ marginTop: '2rem' }}>
-                <h3 style={{ borderBottom: '2px solid #1976d2', paddingBottom: '8px', color: '#1976d2' }}>
-                    Your Itinerary
-                </h3>
-
-                {sortedDates.length === 0 ? (
-                    <p className="muted-text">No activities planned yet. Start by adding one in the sidebar!</p>
-                ) : (
-                    sortedDates.map((date) => (
-                        <div key={date} className="itinerary-day" style={{ marginBottom: '1.5rem' }}>
-                            {/* DAY HEADER */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                                <div style={{ 
-                                    background: '#1976d2', 
-                                    color: 'white', 
-                                    padding: '4px 12px', 
-                                    borderRadius: '16px', 
-                                    fontSize: '0.85rem', 
-                                    fontWeight: 'bold' 
-                                }}>
-                                    {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                </div>
-                                <div style={{ flex: 1, height: '1px', background: '#e0e0e0' }}></div>
-                            </div>
-
-                            {/* ACTIVITIES FOR THIS DAY */}
-                            <div style={{ paddingLeft: '20px', borderLeft: '2px solid #f0f0f0', marginLeft: '40px' }}>
-                                {groupedActivities[date].map((item) => (
-                                    <article className="activity-row" key={item.id} style={{ 
-                                        padding: '12px', 
-                                        border: '1px solid #f0f0f0', 
-                                        borderRadius: '8px', 
-                                        marginBottom: '10px', 
-                                        display: 'flex', 
-                                        justifyContent: 'space-between',
-                                        background: 'white'
-                                    }}>
-                                        <div>
-                                            <strong style={{ color: '#333' }}>{item.name}</strong>
-                                            <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>📍 {item.location}</p>
-                                            {item.notes && <small style={{ color: '#888', fontStyle: 'italic' }}>"{item.notes}"</small>}
-                                        </div>
-                                        <button className="danger-btn" style={{ padding: '4px 10px', fontSize: '0.7rem' }} onClick={() => onRemoveActivity(trip.id, item.id)}>
-                                            Remove
-                                        </button>
-                                    </article>
-                                ))}
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
-
-            {/* MAP SECTION */}
-            <div className="map-section" style={{ marginTop: '2rem' }}>
-            <h3>Trip Map</h3>
-            <TripMap
-                destination={{
-                    name: trip.destination
-                }}
-                attractions={(recommendations || [])
-                    .filter((rec) => rec.coordinates && Array.isArray(rec.coordinates))
-                    .map((rec) => ({
-                    id: rec.id,
-                    name: rec.name,
-                    location: rec.address,
-                    coordinates: rec.coordinates
-                    }))}
-                activities={(trip.activities || []).map((activity) => ({
-                    id: activity.id,
-                    name: activity.name,
-                    location: activity.location,
-                    date: activity.date,
-                    notes: activity.notes,
-                    latitude: activity.latitude,
-                    longitude: activity.longitude
-                }))}
-                onMarkerClick={(item) => console.log('clicked marker:', item)}
-                />
-            </div>
-        </div>
-
-        <aside className="form-card" style={{ position: 'sticky', top: '20px' }}>
-            <h3>Add Activity</h3>
-            <form onSubmit={submitActivity}>
-            <label>Name</label>
-            <input value={activity.name} onChange={(e) => setActivity({ ...activity, name: e.target.value })} />
-            <label>Location</label>
-            <input value={activity.location} onChange={(e) => setActivity({ ...activity, location: e.target.value })} />
-            <label>Date</label>
-            <input type="date" value={activity.date} onChange={(e) => setActivity({ ...activity, date: e.target.value })} />
-            <label>Notes</label>
-            <textarea value={activity.notes} onChange={(e) => setActivity({ ...activity, notes: e.target.value })} rows="3" />
-            <button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? <span className="spinner-small">Saving...</span> : 'Add Activity'}
-            </button>
-            </form>
-        </aside>
-        </section>
-    );
+    if (activityLimitReached) {
+      alert('Base users can add up to 5 activities per trip. Upgrade to premium for unlimited activities.');
+      return;
     }
 
-    export default TripDetailsPage;
+    setIsSubmitting(true);
+    try {
+      await onAddActivity(trip.id, activity);
+      setActivity({ name: '', location: '', date: '', notes: '' });
+    } catch (err) {
+      console.error('Submit failed', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTrip = async () => {
+    const confirmed = window.confirm('Delete this trip and all of its activities?');
+    if (!confirmed) return;
+
+    setIsDeletingTrip(true);
+    try {
+      await onRemoveTrip(trip.id);
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Trip delete failed', err);
+      alert('Failed to delete trip. Please try again.');
+    } finally {
+      setIsDeletingTrip(false);
+    }
+  };
+
+  const groupedRecs = recommendations.reduce((acc, rec) => {
+    const cat = rec.category || 'Other';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(rec);
+    return acc;
+  }, {});
+
+  return (
+    <section className="split-layout">
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>{trip.destination}</h2>
+            <h4 style={{ margin: '8px 0 4px 0' }}>
+              Trip Dates: {(trip.start_date || trip.startDate)?.slice(0, 10)} to {(trip.end_date || trip.endDate)?.slice(0, 10)}
+            </h4>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
+              <button
+                className="danger-btn"
+                type="button"
+                disabled={isDeletingTrip}
+                onClick={handleDeleteTrip}
+              >
+                {isDeletingTrip ? 'Deleting...' : 'Delete Trip'}
+              </button>
+
+              <span
+                style={{
+                  fontSize: '0.8rem',
+                  fontWeight: '600',
+                  padding: '6px 10px',
+                  borderRadius: '999px',
+                  background: isPremium ? '#fff4d6' : '#eef3f1',
+                  color: isPremium ? '#8a6200' : '#4f6b63'
+                }}
+              >
+                {isPremium ? 'Premium Account' : 'Base Account'}
+              </span>
+            </div>
+          </div>
+
+          <div className="weather-card" style={{ background: '#f0f4f8', padding: '12px', borderRadius: '12px', minWidth: '170px', textAlign: 'center' }}>
+            {!isPremium ? (
+              <>
+                <div style={{ fontSize: '0.85rem', fontWeight: '600', color: '#546e7a' }}>Premium Feature</div>
+                <div style={{ fontSize: '0.75rem', color: '#78909c', marginTop: '4px' }}>
+                  Weather insights are available for premium users only
+                </div>
+              </>
+            ) : weatherLoading ? (
+              <small>Syncing weather...</small>
+            ) : weather ? (
+              <>
+                <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#2c3e50' }}>
+                  {weather.temperature}°F
+                </div>
+                <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#546e7a' }}>
+                  {weather.conditions}
+                </div>
+                <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '4px' }}>
+                  {weather.description}
+                </div>
+                <div style={{ fontSize: '0.6rem', color: '#90a4ae', marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  {weather.isForecast ? 'Live Forecast' : 'Seasonal Average'}
+                </div>
+              </>
+            ) : (
+              <small>Weather N/A</small>
+            )}
+          </div>
+        </div>
+
+        <div className="discovery-box" style={{ background: '#f9f9f9', padding: '1.25rem', borderRadius: '10px', border: '1px solid #eee', marginBottom: '2rem' }}>
+          <h3>Discover {trip.destination}</h3>
+
+          {!isPremium ? (
+            <p className="muted-text" style={{ marginTop: '0.5rem' }}>
+              Activity recommendations are a premium feature.
+            </p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', flex: 1 }}
+                >
+                  <optgroup label="Popular">
+                    <option value="tourist_attraction">Must See Sights</option>
+                    <option value="museum">Museums</option>
+                    <option value="park">Parks & Nature</option>
+                  </optgroup>
+                  <optgroup label="Food & Drink">
+                    <option value="restaurant">Restaurants</option>
+                    <option value="cafe">Coffee Shops</option>
+                    <option value="bakery">Bakeries</option>
+                    <option value="bar">Bars & Nightlife</option>
+                    <option value="brewery">Breweries</option>
+                  </optgroup>
+                  <optgroup label="Culture & Arts">
+                    <option value="art_gallery">Art Galleries</option>
+                    <option value="performing_arts_theater">Theaters</option>
+                    <option value="library">Libraries</option>
+                  </optgroup>
+                  <optgroup label="Entertainment">
+                    <option value="aquarium">Aquariums</option>
+                    <option value="zoo">Zoos</option>
+                    <option value="amusement_park">Amusement Parks</option>
+                    <option value="movie_theater">Cinemas</option>
+                  </optgroup>
+                </select>
+
+                <button
+                  onClick={handleSearchRecs}
+                  disabled={isSearching}
+                  style={{ padding: '8px 16px', cursor: isSearching ? 'not-allowed' : 'pointer' }}
+                >
+                  {isSearching ? 'Searching...' : 'Find Ideas'}
+                </button>
+              </div>
+
+              <div className="rec-list" style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px' }}>
+                {Object.keys(groupedRecs).length > 0 ? (
+                  Object.entries(groupedRecs).map(([catName, items]) => (
+                    <div key={catName} style={{ marginBottom: '1.5rem' }}>
+                      <h4
+                        style={{
+                          fontSize: '0.7rem',
+                          textTransform: 'uppercase',
+                          color: '#1976d2',
+                          letterSpacing: '1px',
+                          borderBottom: '1px solid #e0e0e0',
+                          paddingBottom: '4px',
+                          marginBottom: '8px'
+                        }}
+                      >
+                        {catName}
+                      </h4>
+
+                      {items.map((rec) => (
+                        <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f9f9f9', alignItems: 'center' }}>
+                          <div style={{ flex: 1, paddingRight: '10px' }}>
+                            <strong style={{ fontSize: '0.9rem', display: 'block' }}>{rec.name}</strong>
+                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#666' }}>{rec.address}</p>
+                            <small style={{ color: '#f39c12' }}>★ {rec.rating}</small>
+                          </div>
+
+                          <button
+                            className="ghost-btn"
+                            style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                            onClick={() =>
+                              setActivity({
+                                name: rec.name,
+                                location: rec.address,
+                                date: '',
+                                notes: `Imported from Discovery (${catName}). Rating: ${rec.rating} stars.`
+                              })
+                            }
+                          >
+                            Use
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                ) : (
+                  !isSearching && (
+                    <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#999', marginTop: '20px' }}>
+                      Select a category to start exploring.
+                    </p>
+                  )
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="events-box" style={{ background: '#fff8f0', padding: '1.25rem', borderRadius: '10px', border: '1px solid #ffe0b2', marginBottom: '2rem' }}>
+          <h3>Events in {trip.destination}</h3>
+
+          {!isPremium ? (
+            <p className="muted-text">Event search is available for premium users only.</p>
+          ) : eventsLoading ? (
+            <p>Loading events...</p>
+          ) : events.length > 0 ? (
+            <div className="events-list" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              {events.map((event) => (
+                <div key={event.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #f0f0f0', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ fontSize: '0.9rem' }}>{event.name}</strong>
+                    <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>
+                      {event.date} {event.time && `at ${event.time}`} • {event.venue}
+                    </p>
+                    {event.genre && <small style={{ color: '#888' }}>{event.source === 'predicthq' ? 'Category' : 'Genre'}: {event.genre}</small>}
+                    {event.priceRange && <p style={{ margin: '2px 0', fontSize: '0.75rem', color: '#666' }}>Price: {event.priceRange}</p>}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <button
+                      className="ghost-btn"
+                      style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                      onClick={() =>
+                        setActivity({
+                          name: event.name,
+                          location: `${event.venue}${event.address ? `, ${event.address}` : ''}, ${event.city}`,
+                          date: event.date,
+                          notes: `Event: ${event.genre || 'General'}. ${event.description || ''}`
+                        })
+                      }
+                    >
+                      Add to Trip
+                    </button>
+
+                    {event.url && (
+                      <a
+                        href={event.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '0.75rem', color: '#1976d2', textDecoration: 'none' }}
+                      >
+                        {event.source === 'predicthq' ? 'More info' : 'Get Tickets'}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <p>No events found for your trip dates.</p>
+              {eventsMeta.message && (
+                <p className="muted-text" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                  {eventsMeta.message}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="itinerary-section" style={{ marginTop: '2rem' }}>
+          <h3 style={{ borderBottom: '2px solid #1976d2', paddingBottom: '8px', color: '#1976d2' }}>
+            Your Itinerary
+          </h3>
+
+          {!isPremium && (
+            <p className="muted-text" style={{ marginBottom: '1rem' }}>
+              Base account limit: up to 5 activities per trip.
+            </p>
+          )}
+
+          {sortedDates.length === 0 ? (
+            <p className="muted-text">No activities planned yet. Start by adding one in the sidebar.</p>
+          ) : (
+            sortedDates.map((date) => (
+              <div key={date} className="itinerary-day" style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
+                  <div
+                    style={{
+                      background: '#1976d2',
+                      color: 'white',
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontSize: '0.85rem',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </div>
+                  <div style={{ flex: 1, height: '1px', background: '#e0e0e0' }}></div>
+                </div>
+
+                <div style={{ paddingLeft: '20px', borderLeft: '2px solid #f0f0f0', marginLeft: '40px' }}>
+                  {groupedActivities[date].map((item) => (
+                    <article
+                      className="activity-row"
+                      key={item.id}
+                      style={{
+                        padding: '12px',
+                        border: '1px solid #f0f0f0',
+                        borderRadius: '8px',
+                        marginBottom: '10px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        background: 'white'
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: '#333' }}>{item.name}</strong>
+                        <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>📍 {item.location}</p>
+                        {item.notes && <small style={{ color: '#888', fontStyle: 'italic' }}>"{item.notes}"</small>}
+                      </div>
+
+                      <button
+                        className="danger-btn"
+                        style={{ padding: '4px 10px', fontSize: '0.7rem' }}
+                        onClick={() => onRemoveActivity(trip.id, item.id)}
+                      >
+                        Remove
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="map-section" style={{ marginTop: '2rem' }}>
+          <h3>Trip Map</h3>
+          <TripMap
+            destination={{
+              name: trip.destination
+            }}
+            attractions={(recommendations || [])
+              .filter((rec) => rec.coordinates && Array.isArray(rec.coordinates))
+              .map((rec) => ({
+                id: rec.id,
+                name: rec.name,
+                location: rec.address,
+                coordinates: rec.coordinates
+              }))}
+            activities={(trip.activities || []).map((item) => ({
+              id: item.id,
+              name: item.name,
+              location: item.location,
+              date: item.date,
+              notes: item.notes,
+              latitude: item.latitude,
+              longitude: item.longitude
+            }))}
+            onMarkerClick={(item) => console.log('clicked marker:', item)}
+          />
+        </div>
+      </div>
+
+      <aside className="form-card" style={{ position: 'sticky', top: '20px' }}>
+        <h3>Add Activity</h3>
+
+        {!isPremium && (
+          <p className="muted-text" style={{ marginBottom: '1rem' }}>
+            Base users can add up to 5 activities per trip.
+          </p>
+        )}
+
+        {activityLimitReached && (
+          <div
+            style={{
+              background: '#fff3cd',
+              color: '#856404',
+              padding: '10px',
+              borderRadius: '8px',
+              marginBottom: '1rem',
+              fontSize: '0.85rem'
+            }}
+          >
+            You have reached the 5-activity limit for this trip. Upgrade to premium for unlimited activities.
+          </div>
+        )}
+
+        <form onSubmit={submitActivity}>
+          <label>Name</label>
+          <input
+            value={activity.name}
+            onChange={(e) => setActivity({ ...activity, name: e.target.value })}
+            disabled={activityLimitReached}
+          />
+
+          <label>Location</label>
+          <input
+            value={activity.location}
+            onChange={(e) => setActivity({ ...activity, location: e.target.value })}
+            disabled={activityLimitReached}
+          />
+
+          <label>Date</label>
+          <input
+            type="date"
+            value={activity.date}
+            onChange={(e) => setActivity({ ...activity, date: e.target.value })}
+            disabled={activityLimitReached}
+          />
+
+          <label>Notes</label>
+          <textarea
+            value={activity.notes}
+            onChange={(e) => setActivity({ ...activity, notes: e.target.value })}
+            rows="3"
+            disabled={activityLimitReached}
+          />
+
+          <button type="submit" disabled={isSubmitting || activityLimitReached}>
+            {isSubmitting ? 'Saving...' : 'Add Activity'}
+          </button>
+        </form>
+      </aside>
+    </section>
+  );
+}
+
+export default TripDetailsPage;

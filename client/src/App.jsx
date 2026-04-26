@@ -39,8 +39,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-
-
 const ACTIVITY_COORDS = {
   'Fushimi Inari Shrine': [34.9671, 135.7727],
   'Arashiyama Bamboo Grove': [35.0170, 135.6713],
@@ -79,7 +77,7 @@ function TripMap({ trip, selectedActivity, onSelectActivity }) {
         className="trip-map"
       >
         <TileLayer
-          attribution='&copy; OpenStreetMap contributors'
+          attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
@@ -127,50 +125,50 @@ function TripMap({ trip, selectedActivity, onSelectActivity }) {
 }
 
 function HomePage({ isMember, onSaveItinerary, member }) {
-  const [saving, setSaving] = useState(null)
-  const [showSaveModal, setShowSaveModal] = useState(false)
-  const [selectedDestination, setSelectedDestination] = useState(null)
+  const [saving, setSaving] = useState(null);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [selectedDestination, setSelectedDestination] = useState(null);
   const [tripDates, setTripDates] = useState({
     startDate: '',
     endDate: ''
-  })
+  });
 
   const getUnsplashImage = (destination) =>
-    `https://source.unsplash.com/900x600/?${encodeURIComponent(`${destination.city} ${destination.country} travel landmark`)}`
+    `https://source.unsplash.com/900x600/?${encodeURIComponent(`${destination.city} ${destination.country} travel landmark`)}`;
 
   const getPicsumFallback = (destination) =>
-    `https://picsum.photos/seed/${encodeURIComponent(destination.destination || `${destination.city}-${destination.country}`)}/900/600`
+    `https://picsum.photos/seed/${encodeURIComponent(destination.destination || `${destination.city}-${destination.country}`)}/900/600`;
 
   const openSaveModal = (destination) => {
-    setSelectedDestination(destination)
+    setSelectedDestination(destination);
     setTripDates({
       startDate: '',
       endDate: ''
-    })
-    setShowSaveModal(true)
-  }
+    });
+    setShowSaveModal(true);
+  };
 
   const closeSaveModal = () => {
-    setShowSaveModal(false)
-    setSelectedDestination(null)
+    setShowSaveModal(false);
+    setSelectedDestination(null);
     setTripDates({
       startDate: '',
       endDate: ''
-    })
-  }
+    });
+  };
 
   const handleConfirmSave = async () => {
     if (!selectedDestination || !tripDates.startDate || !tripDates.endDate) {
-      alert('Please select both start and end dates.')
-      return
+      alert('Please select both start and end dates.');
+      return;
     }
 
     if (tripDates.endDate < tripDates.startDate) {
-      alert('End date cannot be before start date.')
-      return
+      alert('End date cannot be before start date.');
+      return;
     }
 
-    setSaving(selectedDestination.id)
+    setSaving(selectedDestination.id);
 
     try {
       const response = await travelApi.createTrip({
@@ -179,7 +177,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
         start_date: tripDates.startDate,
         end_date: tripDates.endDate,
         notes: `Saved from destination card for ${selectedDestination.city}.`
-      })
+      });
 
       const newTrip = {
         id: response.data.id,
@@ -188,17 +186,17 @@ function HomePage({ isMember, onSaveItinerary, member }) {
         endDate: tripDates.endDate,
         notes: `Saved from destination card for ${selectedDestination.city}.`,
         activities: [],
-      }
+      };
 
-      onSaveItinerary(newTrip)
-      closeSaveModal()
+      onSaveItinerary(newTrip);
+      closeSaveModal();
     } catch (err) {
-      alert('Failed to save itinerary. Please try again.')
-      console.error(err)
+      alert('Failed to save itinerary. Please try again.');
+      console.error(err);
     } finally {
-      setSaving(null)
+      setSaving(null);
     }
-  }
+  };
 
   return (
     <section>
@@ -214,18 +212,18 @@ function HomePage({ isMember, onSaveItinerary, member }) {
               src={destination.image || getUnsplashImage(destination)}
               alt={`${destination.city} skyline`}
               onError={(event) => {
-                const { currentTarget } = event
-                const fallbackStage = currentTarget.dataset.fallbackStage || '0'
+                const { currentTarget } = event;
+                const fallbackStage = currentTarget.dataset.fallbackStage || '0';
 
                 if (fallbackStage === '0') {
-                  currentTarget.dataset.fallbackStage = '1'
-                  currentTarget.src = getUnsplashImage(destination)
-                  return
+                  currentTarget.dataset.fallbackStage = '1';
+                  currentTarget.src = getUnsplashImage(destination);
+                  return;
                 }
 
                 if (fallbackStage === '1') {
-                  currentTarget.dataset.fallbackStage = '2'
-                  currentTarget.src = getPicsumFallback(destination)
+                  currentTarget.dataset.fallbackStage = '2';
+                  currentTarget.src = getPicsumFallback(destination);
                 }
               }}
             />
@@ -287,14 +285,14 @@ function HomePage({ isMember, onSaveItinerary, member }) {
         </div>
       )}
     </section>
-  )
+  );
 }
 
 function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', role: 'base' });
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState(''); // New state for success message
+  const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
 
   const onSubmit = async (event) => {
@@ -309,34 +307,27 @@ function AuthPage({ onAuthSuccess }) {
           return;
         }
 
-        // 1. Call signup ONCE with the role
-        await travelApi.signup({ 
-          email: form.email, 
-          password: form.password, 
-          role: form.role 
+        await travelApi.signup({
+          email: form.email,
+          password: form.password,
+          role: form.role
         });
 
-        // 2. Show success message
         setSuccessMessage('Account created successfully!');
 
-        // 3. Wait 2 seconds then switch to login mode
         setTimeout(() => {
           setSuccessMessage('');
           setMode('login');
-          setForm({ ...form, password: '', confirmPassword: '' }); // Clear passwords
+          setForm({ ...form, password: '', confirmPassword: '' });
         }, 2000);
-
       } else {
-        // LOGIN LOGIC
         const response = await travelApi.login({ email: form.email, password: form.password });
-        
-        console.log("Backend returned:", response.data);
-        const userData = response.data.user || response.data; 
+        const userData = response.data.user || response.data;
         onAuthSuccess(userData);
         navigate('/dashboard');
       }
     } catch (err) {
-      console.error("Auth Error Details:", err.response?.data);
+      console.error('Auth Error Details:', err.response?.data);
       setError(err.response?.data?.error || 'Authentication failed. Please try again.');
     }
   };
@@ -344,23 +335,22 @@ function AuthPage({ onAuthSuccess }) {
   return (
     <section className="auth-panel">
       <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
-      
-      {/* Display messages */}
+
       {error && <p style={{ color: 'red', fontWeight: 'bold' }}>{error}</p>}
       {successMessage && <p style={{ color: 'green', fontWeight: 'bold' }}>{successMessage}</p>}
-      
+
       <form onSubmit={onSubmit}>
         <label>Email</label>
         <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-        
+
         <label>Password</label>
         <input type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-        
+
         {mode === 'signup' && (
           <>
             <label>Account Type</label>
-            <select 
-              value={form.role} 
+            <select
+              value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
               className="role-select"
               style={{ marginBottom: '10px', padding: '8px', width: '100%' }}
@@ -369,16 +359,17 @@ function AuthPage({ onAuthSuccess }) {
               <option value="premium">Premium (Pro)</option>
             </select>
 
-            {/* Dynamic Plan Description */}
-            <div style={{ 
-              background: '#f0f4f8', 
-              padding: '12px', 
-              borderRadius: '6px', 
-              marginBottom: '15px', 
-              fontSize: '0.85rem',
-              lineHeight: '1.4',
-              borderLeft: form.role === 'premium' ? '4px solid #ffd700' : '4px solid #999'
-            }}>
+            <div
+              style={{
+                background: '#f0f4f8',
+                padding: '12px',
+                borderRadius: '6px',
+                marginBottom: '15px',
+                fontSize: '0.85rem',
+                lineHeight: '1.4',
+                borderLeft: form.role === 'premium' ? '4px solid #ffd700' : '4px solid #999'
+              }}
+            >
               {form.role === 'base' ? (
                 <div>
                   <strong>Base Account Features:</strong>
@@ -394,21 +385,22 @@ function AuthPage({ onAuthSuccess }) {
                     <li><strong>Unlimited</strong> activities per trip.</li>
                     <li><strong>Weather Insights:</strong> Local forecasts for your dates.</li>
                     <li><strong>Real-time Recommendations:</strong> Personalized activity suggestions.</li>
+                    <li><strong>Event Search:</strong> Search local events during your trip dates.</li>
                   </ul>
                 </div>
               )}
             </div>
 
             <label>Confirm Password</label>
-            <input 
-              type="password" 
-              required 
-              value={form.confirmPassword} 
-              onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} 
+            <input
+              type="password"
+              required
+              value={form.confirmPassword}
+              onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
             />
           </>
         )}
-        
+
         <button type="submit" disabled={!!successMessage}>
           {mode === 'login' ? 'Login' : 'Sign up'}
         </button>
@@ -422,9 +414,6 @@ function AuthPage({ onAuthSuccess }) {
     </section>
   );
 }
-
-
-
 
 function DashboardPage({ trips, memberEmail }) {
   return (
@@ -533,7 +522,6 @@ function ProtectedRoute({ isMember, children }) {
 }
 
 function App() {
-  // Initialize member from localStorage to avoid redirect on page load
   const [member, setMemberState] = useState(() => {
     const savedUser = localStorage.getItem('travelPlannerUser');
     if (savedUser) {
@@ -547,11 +535,11 @@ function App() {
     }
     return null;
   });
-  
+
   const [trips, setTrips] = useState(INITIAL_TRIPS);
+  const [isUpgrading, setIsUpgrading] = useState(false);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
 
-  // Persist member to localStorage on change
   const setMember = (userData) => {
     if (userData) {
       localStorage.setItem('travelPlannerUser', JSON.stringify(userData));
@@ -569,14 +557,36 @@ function App() {
       });
       setTrips(res.data);
     } catch (err) {
-      console.error("Database sync failed", err);
+      console.error('Database sync failed', err);
     }
   };
 
-  // Whenever there is a successful login, trips will be fetched
   useEffect(() => {
     fetchTripsFromDb();
   }, [member?.id]);
+
+  const handleUpgradeToPremium = async () => {
+    if (!member?.id) return;
+
+    const confirmed = window.confirm('Upgrade your account to premium?');
+    if (!confirmed) return;
+
+    setIsUpgrading(true);
+    try {
+      const response = await travelApi.upgradeToPremium(member.id);
+      const upgradedUser = {
+        ...member,
+        role: response.data.role
+      };
+      setMember(upgradedUser);
+      alert('Your account has been upgraded to premium.');
+    } catch (err) {
+      console.error('Upgrade failed', err);
+      alert(err.response?.data?.error || 'Failed to upgrade account.');
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
 
   const saveItinerary = (newTrip) => {
     setTrips((current) => [newTrip, ...current]);
@@ -584,19 +594,20 @@ function App() {
 
   const addActivity = async (tripId, activity) => {
     try {
-      await travelApi.addActivity(tripId, activity);
-      await fetchTripsFromDb(); 
+      await travelApi.addActivity(tripId, activity, member?.id);
+      await fetchTripsFromDb();
     } catch (err) {
-      console.error("Add Activity Failed", err);
+      console.error('Add Activity Failed', err);
+      alert(err.response?.data?.error || 'Failed to add activity.');
     }
   };
 
   const removeActivity = async (tripId, activityId) => {
     try {
       await travelApi.removeActivity(activityId);
-      await fetchTripsFromDb(); 
+      await fetchTripsFromDb();
     } catch (err) {
-      console.error("Remove Activity Failed", err);
+      console.error('Remove Activity Failed', err);
     }
   };
 
@@ -606,7 +617,7 @@ function App() {
       await travelApi.deleteTrip(tripId, member.id);
       setTrips((current) => current.filter((trip) => trip.id !== tripId));
     } catch (err) {
-      console.error("Delete Trip Failed", err);
+      console.error('Delete Trip Failed', err);
       throw err;
     }
   };
@@ -615,10 +626,8 @@ function App() {
     setTrips((current) => {
       const existing = current.find(item => item.id === trip.id);
       if (existing) {
-        // Update existing trip
         return current.map((item) => (item.id === trip.id ? { ...item, ...trip } : item));
       } else {
-        // Add new trip (from form creation)
         return [{ ...trip, activities: [] }, ...current];
       }
     });
@@ -632,6 +641,17 @@ function App() {
           <NavLink to="/">Home</NavLink>
           <NavLink to="/dashboard">Dashboard</NavLink>
           <NavLink to="/trips/new">Create Trip</NavLink>
+
+          {member && member.role === 'base' && (
+            <button
+              className="ghost-btn"
+              onClick={handleUpgradeToPremium}
+              disabled={isUpgrading}
+            >
+              {isUpgrading ? 'Upgrading...' : 'Upgrade to Premium'}
+            </button>
+          )}
+
           {!member ? (
             <NavLink to="/auth">Login / Signup</NavLink>
           ) : (
@@ -672,12 +692,12 @@ function App() {
             path="/trips/:tripId"
             element={(
               <ProtectedRoute isMember={Boolean(member)}>
-                {/* ✅ This now points to your new organized file! */}
-                <TripDetailsPage 
-                  trips={trips} 
-                  onAddActivity={addActivity} 
-                  onRemoveActivity={removeActivity} 
+                <TripDetailsPage
+                  trips={trips}
+                  onAddActivity={addActivity}
+                  onRemoveActivity={removeActivity}
                   onRemoveTrip={removeTrip}
+                  member={member}
                 />
               </ProtectedRoute>
             )}

@@ -19,9 +19,42 @@ app.get('/up', (req, res) => {
   res.json({ status: 'up' })
 })
 
+async function getUserById(userId) {
+  const result = await query(
+    'SELECT id, email, role FROM travelplanner_users WHERE id = $1',
+    [userId]
+  )
+  return result.rows[0] || null
+}
+
+async function getTripOwnerRole(tripId) {
+  const result = await query(
+    `SELECT u.id, u.role
+     FROM travelplanner_trips t
+     JOIN travelplanner_users u ON t.user_id = u.id
+     WHERE t.id = $1`,
+    [tripId]
+  )
+  return result.rows[0] || null
+}
+
 // ===== RECOMMENDATIONS =====
 app.get('/api/recommendations', async (req, res) => {
   const { interest, city } = req.query
+  const userId = req.headers['x-user-id']
+
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID required' })
+  }
+
+  const user = await getUserById(userId)
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' })
+  }
+
+  if (user.role !== 'premium') {
+    return res.status(403).json({ error: 'Recommendations are available for premium users only' })
+  }
 
   if (!interest || !city) {
     return res.status(400).json({ error: 'Missing parameters.' })
@@ -72,6 +105,20 @@ app.get('/api/recommendations', async (req, res) => {
 // ===== WEATHER =====
 app.get('/api/weather', async (req, res) => {
   const { city, date } = req.query
+  const userId = req.headers['x-user-id']
+
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID required' })
+  }
+
+  const user = await getUserById(userId)
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' })
+  }
+
+  if (user.role !== 'premium') {
+    return res.status(403).json({ error: 'Weather is available for premium users only' })
+  }
 
   if (!city) {
     return res.status(400).json({ error: 'City parameter is required' })
@@ -146,7 +193,6 @@ app.get('/api/weather', async (req, res) => {
 })
 
 // ===== EVENTS (PredictHQ) =====
-
 async function geocodeDestinationLabel(label) {
   if (!label?.trim()) return null
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(label.trim())}&count=1&language=en&format=json`
@@ -284,6 +330,21 @@ async function fetchTicketmasterEvents(city, startDate, endDate) {
 }
 
 app.get('/api/events', async (req, res) => {
+  const userId = req.headers['x-user-id']
+
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID required' })
+  }
+
+  const user = await getUserById(userId)
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' })
+  }
+
+  if (user.role !== 'premium') {
+    return res.status(403).json({ error: 'Event search is available for premium users only' })
+  }
+
   const destination = (req.query.destination || req.query.city || '').trim()
   const { startDate, endDate } = req.query
 
@@ -351,10 +412,8 @@ app.get('/api/events', async (req, res) => {
 })
 
 // ===== AUTH =====
-// ===== UPDATED SIGNUP =====
 app.post('/api/signup', async (req, res) => {
-  // 1. Pull role from the request body
-  const { email, password, role } = req.body 
+  const { email, password, role } = req.body
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' })
@@ -370,13 +429,11 @@ app.post('/api/signup', async (req, res) => {
       return res.status(409).json({ error: 'User exists' })
     }
 
-    // 2. Simple validation: default to 'base' if the role is missing or invalid
-    const validRoles = ['base', 'premium'];
-    const assignedRole = validRoles.includes(role) ? role : 'base';
+    const validRoles = ['base', 'premium']
+    const assignedRole = validRoles.includes(role) ? role : 'base'
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // 3. Use the assignedRole variable in the SQL query
     const result = await query(
       'INSERT INTO travelplanner_users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role',
       [email, hashedPassword, assignedRole]
@@ -389,7 +446,6 @@ app.post('/api/signup', async (req, res) => {
   }
 })
 
-// ===== UPDATED LOGIN =====
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body
 
@@ -398,7 +454,6 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    // 1. Add 'role' to the SELECT statement
     const result = await query(
       'SELECT id, email, password, role FROM travelplanner_users WHERE email = $1',
       [email]
@@ -414,15 +469,63 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
-    // 2. Include 'role' in the response object
     res.json({
       id: result.rows[0].id,
       email: result.rows[0].email,
-      role: result.rows[0].role 
+      role: result.rows[0].role
     })
   } catch (err) {
     console.error('Login error:', err)
     res.status(500).json({ error: 'Login failed' })
+  }
+})
+
+// ===== UPGRADE ACCOUNT =====
+app.post('/api/users/:userId/upgrade', async (req, res) => {
+  const { userId } = req.params
+  const requesterId = req.headers['x-user-id']
+
+  if (!requesterId) {
+    return res.status(401).json({ error: 'User ID required' })
+  }
+
+  if (String(requesterId) !== String(userId)) {
+    return res.status(403).json({ error: 'You can only upgrade your own account' })
+  }
+
+  try {
+    const user = await getUserById(userId)
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    if (user.role === 'premium') {
+      return res.json({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        message: 'Account is already premium'
+      })
+    }
+
+    const result = await query(
+      `UPDATE travelplanner_users
+       SET role = 'premium'
+       WHERE id = $1
+       RETURNING id, email, role`,
+      [userId]
+    )
+
+    res.json({
+      id: result.rows[0].id,
+      email: result.rows[0].email,
+      role: result.rows[0].role,
+      message: 'Account upgraded to premium'
+    })
+  } catch (err) {
+    console.error('Upgrade account error:', err)
+    res.status(500).json({ error: 'Failed to upgrade account' })
   }
 })
 
@@ -547,12 +650,39 @@ app.delete('/api/trips/:tripId', async (req, res) => {
 app.post('/api/trips/:tripId/activities', async (req, res) => {
   const { tripId } = req.params
   const { name, location, date, notes } = req.body
+  const userId = req.headers['x-user-id']
+
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID required' })
+  }
 
   if (!name || !location || !date) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
 
   try {
+    const owner = await getTripOwnerRole(tripId)
+
+    if (!owner) {
+      return res.status(404).json({ error: 'Trip not found' })
+    }
+
+    if (String(owner.id) !== String(userId)) {
+      return res.status(403).json({ error: 'You do not have permission to modify this trip' })
+    }
+
+    if (owner.role === 'base') {
+      const countResult = await query(
+        'SELECT COUNT(*)::int AS count FROM travelplanner_activities WHERE trip_id = $1',
+        [tripId]
+      )
+
+      const currentCount = countResult.rows[0].count
+      if (currentCount >= 5) {
+        return res.status(403).json({ error: 'Base users can only add up to 5 activities per trip' })
+      }
+    }
+
     const result = await query(
       `INSERT INTO travelplanner_activities (trip_id, name, location, date, notes)
        VALUES ($1, $2, $3, $4, $5)
