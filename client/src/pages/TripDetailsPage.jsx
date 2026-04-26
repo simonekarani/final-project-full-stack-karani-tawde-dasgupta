@@ -1,8 +1,34 @@
 // use react hooks for page state side effects and grouped memoized values
+import axios from 'axios';
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import { travelApi } from '../api.js';
 import TripMap from '../components/TripMap';
+
+const WEATHER_DESCRIPTIONS = {
+  0: "Clear sky",
+  1: "Mainly clear", 
+  2: "Partly cloudy", 
+  3: "Overcast",
+  45: "Fog", 
+  48: "Depositing rime fog",
+  51: "Light drizzle", 
+  53: "Moderate drizzle", 
+  55: "Dense drizzle",
+  61: "Slight rain", 
+  63: "Moderate rain", 
+  65: "Heavy rain",
+  71: "Slight snow", 
+  73: "Moderate snow", 
+  75: "Heavy snow",
+  77: "Snow grains",
+  80: "Slight rain showers", 
+  81: "Moderate rain showers", 
+  82: "Violent rain showers",
+  95: "Thunderstorm", 
+  96: "Thunderstorm with slight hail", 
+  99: "Thunderstorm with heavy hail",
+};
 
 // page that shows one trip in detail along with premium gated features
 function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip, member }) {
@@ -43,32 +69,92 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
   const sortedDates = Object.keys(groupedActivities).sort();
 
   // fetch weather only when the account is premium and the trip has valid dates
-  useEffect(() => {
+useEffect(() => {
   const fetchTripWeather = async () => {
-    if (!trip?.destination || !member?.id || !isPremium) return
+    // 1. Core logic gate: must be premium and have trip details
+    const rawStart = trip?.start_date || trip?.startDate;
+    const rawEnd = trip?.end_date || trip?.endDate;
 
-    const today = new Date().toISOString().split('T')[0]
-    const rawStartDate = trip?.start_date || trip?.startDate
-    if (!rawStartDate) return
+    if (!isPremium || !trip?.destination || !rawStart) {
+      setWeather(null);
+      return;
+    }
 
-    const weatherDate = rawStartDate < today ? today : rawStartDate
-    const cityOnly = trip.destination.split(',')[0].trim()
+    // 2. Date Formatting: Ensure YYYY-MM-DD format
+    // This handles ISO strings (2026-05-20T...) or simple strings (2026-05-20)
+    const startDate = typeof rawStart === 'string' ? rawStart.slice(0, 10) : new Date(rawStart).toISOString().split('T')[0];
+    const endDate = typeof rawEnd === 'string' ? rawEnd.slice(0, 10) : new Date(rawEnd).toISOString().split('T')[0];
 
-    setWeatherLoading(true)
+    setWeatherLoading(true);
 
     try {
-      const response = await travelApi.getWeather(cityOnly, weatherDate, member.id)
-      setWeather(response.data)
-    } catch (err) {
-      console.error('Weather fetch failed:', err.response?.data || err.message || err)
-      setWeather(null)
-    } finally {
-      setWeatherLoading(false)
-    }
-  }
+      // 3. Geocoding: Convert City to Lat/Long
+      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trip.destination)}&count=1&language=en&format=json`;
+      const geoRes = await axios.get(geoUrl);
 
-  fetchTripWeather()
-}, [trip?.destination, trip?.start_date, trip?.startDate, member?.id, isPremium])
+      if (!geoRes.data.results || geoRes.data.results.length === 0) {
+        throw new Error("Location not found");
+      }
+
+      const { latitude, longitude } = geoRes.data.results[0];
+
+      // 4. Forecast vs. Archive Logic
+      const today = new Date();
+      const tripStartObj = new Date(startDate);
+      // If trip is > 14 days away, we use the Archive API for "typical" weather
+      const isTooFarOut = (tripStartObj - today) > (14 * 24 * 60 * 60 * 1000);
+
+      let apiUrl = "https://api.open-meteo.com/v1/forecast";
+      let params = {
+        latitude,
+        longitude,
+        daily: "weather_code,temperature_2m_max",
+        temperature_unit: "fahrenheit",
+        timezone: "auto"
+      };
+
+      if (isTooFarOut) {
+        // Shift date back 1 year to get historical data for this date
+        const lastYear = new Date(tripStartObj);
+        lastYear.setFullYear(lastYear.getFullYear() - 1);
+        const lastYearStr = lastYear.toISOString().split('T')[0];
+        
+        apiUrl = "https://archive-api.open-meteo.com/v1/archive";
+        params.start_date = lastYearStr;
+        params.end_date = lastYearStr;
+      } else {
+        // Use the real-time forecast
+        params.start_date = startDate;
+        params.end_date = endDate || startDate;
+      }
+
+      // 5. Final Weather Fetch
+      const weatherRes = await axios.get(apiUrl, { params });
+      const daily = weatherRes.data.daily;
+
+      if (daily && daily.temperature_2m_max?.length > 0) {
+        setWeather({
+          temperature: Math.round(daily.temperature_2m_max[0]),
+          conditions: WEATHER_DESCRIPTIONS[daily.weather_code[0]] || "Clear",
+          description: isTooFarOut ? "Based on seasonal averages" : "Official Forecast",
+          isForecast: !isTooFarOut
+        });
+      }
+
+    } catch (err) {
+      console.error("Weather data error:", err.message);
+      setWeather(null);
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  fetchTripWeather();
+}, [trip?.destination, trip?.start_date, trip?.startDate, isPremium]);
+
+
+
+
   // fetch local events only when the account is premium and dates are available
   useEffect(() => {
     const fetchTripEvents = async () => {
