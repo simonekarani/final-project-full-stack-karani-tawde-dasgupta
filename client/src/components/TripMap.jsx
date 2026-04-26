@@ -1,3 +1,4 @@
+// use react hooks for state memoized values and side effects
 import { useEffect, useMemo, useState } from 'react'
 import {
   MapContainer,
@@ -14,6 +15,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import destinationOptions from '../data/destinationOptions.json'
 
+// reset leaflet icon lookup so the marker images work correctly in vite
 delete L.Icon.Default.prototype._getIconUrl
 
 L.Icon.Default.mergeOptions({
@@ -22,6 +24,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
+// helper component so we can listen for map clicks
 function MapClickHandler() {
   useMapEvents({
     click(e) {
@@ -32,6 +35,7 @@ function MapClickHandler() {
   return null
 }
 
+// helper component that keeps the map view fitted around all points
 function FitBounds({ points }) {
   const map = useMap()
 
@@ -50,6 +54,7 @@ function FitBounds({ points }) {
   return null
 }
 
+// convert a typed place name or address into latitude and longitude
 async function geocodePlace(placeText) {
   if (!placeText || !placeText.trim()) {
     return null
@@ -78,6 +83,7 @@ async function geocodePlace(placeText) {
   }
 }
 
+// slightly offset duplicate coordinates so markers do not sit exactly on top of each other
 function addSmallOffsetIfDuplicate(coords, usedMap) {
   const key = `${coords[0].toFixed(6)},${coords[1].toFixed(6)}`
   const count = usedMap[key] || 0
@@ -91,12 +97,21 @@ function addSmallOffsetIfDuplicate(coords, usedMap) {
   return [coords[0] + offset, coords[1] + offset]
 }
 
+// main trip map component used on the trip details page
 export default function TripMap({ destination, attractions = [], activities = [], onMarkerClick }) {
+  // store the main destination coordinates once they are found
   const [destinationCoords, setDestinationCoords] = useState(null)
+
+  // store the final coordinates for each activity by id
   const [activityCoordsMap, setActivityCoordsMap] = useState({})
+
+  // show a loading state while the destination center is still being resolved
   const [isMapLoading, setIsMapLoading] = useState(true)
+
+  // show a smaller loading state while activity markers are updating
   const [isActivityLoading, setIsActivityLoading] = useState(true)
 
+  // first try to match the destination against the saved dataset
   const destinationMatch = useMemo(() => {
     if (!destination?.name) return null
 
@@ -105,6 +120,7 @@ export default function TripMap({ destination, attractions = [], activities = []
     )
   }, [destination?.name])
 
+  // resolve the main destination coordinates from props dataset values or geocoding
   useEffect(() => {
     let isMounted = true
 
@@ -142,6 +158,7 @@ export default function TripMap({ destination, attractions = [], activities = []
     }
   }, [destination, destinationMatch])
 
+  // resolve each activity location and build a marker map keyed by activity id
   useEffect(() => {
     let isMounted = true
 
@@ -185,18 +202,22 @@ export default function TripMap({ destination, attractions = [], activities = []
     }
   }, [activities, destinationCoords])
 
+  // gather attraction points that already came in with coordinates
   const attractionPoints = attractions
     .map((attraction) => attraction.coordinates)
     .filter(Boolean)
 
+  // gather activity points after they have been looked up
   const activityPoints = activities
     .map((activity) => activityCoordsMap[activity.id])
     .filter(Boolean)
 
+  // combine all visible points so the map can fit around them
   const allPoints = destinationCoords
     ? [destinationCoords, ...attractionPoints, ...activityPoints]
     : []
 
+  // wait until the destination center is ready before rendering the map
   if (!destinationCoords || isMapLoading) {
     return (
       <div className="trip-map-wrapper">

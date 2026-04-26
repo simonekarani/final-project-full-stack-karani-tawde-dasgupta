@@ -1,16 +1,21 @@
+// use react hooks for page state side effects and grouped memoized values
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import { travelApi } from '../api.js';
 import TripMap from '../components/TripMap';
 
+// page that shows one trip in detail along with premium gated features
 function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip, member }) {
+  // read the trip id from the route and find the matching trip from state
   const { tripId } = useParams();
   const navigate = useNavigate();
   const trip = trips.find((item) => String(item.id) === tripId);
 
+  // account type controls what features are unlocked on this page
   const isPremium = member?.role === 'premium';
   const activityLimitReached = !isPremium && (trip?.activities?.length || 0) >= 5;
 
+  // form state for adding a new activity
   const [activity, setActivity] = useState({ name: '', location: '', date: '', notes: '' });
   const [recommendations, setRecommendations] = useState([]);
   const [category, setCategory] = useState('museum');
@@ -23,6 +28,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
   const [eventsMeta, setEventsMeta] = useState({ source: null, message: null, predicthqConfigured: null });
   const [isDeletingTrip, setIsDeletingTrip] = useState(false);
 
+  // group saved activities by date so the itinerary can be shown day by day
   const groupedActivities = useMemo(() => {
     if (!trip?.activities) return {};
 
@@ -36,29 +42,34 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
 
   const sortedDates = Object.keys(groupedActivities).sort();
 
+  // fetch weather only when the account is premium and the trip has valid dates
   useEffect(() => {
-    const fetchTripWeather = async () => {
-      if (!trip?.destination || !member?.id || !isPremium) return;
+  const fetchTripWeather = async () => {
+    if (!trip?.destination || !member?.id || !isPremium) return
 
-      const startDate = trip?.start_date || trip?.startDate;
-      if (!startDate) return;
+    const today = new Date().toISOString().split('T')[0]
+    const rawStartDate = trip?.start_date || trip?.startDate
+    if (!rawStartDate) return
 
-      setWeatherLoading(true);
+    const weatherDate = rawStartDate < today ? today : rawStartDate
+    const cityOnly = trip.destination.split(',')[0].trim()
 
-      try {
-        const response = await travelApi.getWeather(trip.destination, startDate, member.id);
-        setWeather(response.data);
-      } catch (err) {
-        console.error('Weather fetch failed:', err);
-        setWeather(null);
-      } finally {
-        setWeatherLoading(false);
-      }
-    };
+    setWeatherLoading(true)
 
-    fetchTripWeather();
-  }, [trip?.destination, trip?.start_date, trip?.startDate, member?.id, isPremium]);
+    try {
+      const response = await travelApi.getWeather(cityOnly, weatherDate, member.id)
+      setWeather(response.data)
+    } catch (err) {
+      console.error('Weather fetch failed:', err.response?.data || err.message || err)
+      setWeather(null)
+    } finally {
+      setWeatherLoading(false)
+    }
+  }
 
+  fetchTripWeather()
+}, [trip?.destination, trip?.start_date, trip?.startDate, member?.id, isPremium])
+  // fetch local events only when the account is premium and dates are available
   useEffect(() => {
     const fetchTripEvents = async () => {
       if (!trip?.destination || !member?.id || !isPremium) return;
@@ -93,6 +104,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
 
   if (!trip) return <Navigate to="/dashboard" replace />;
 
+  // search for google places recommendations for the current destination
   const handleSearchRecs = async () => {
     if (!isPremium) return;
 
@@ -108,6 +120,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
     }
   };
 
+  // submit a new activity and stop base users once they reach the activity limit
   const submitActivity = async (event) => {
     event.preventDefault();
 
@@ -129,6 +142,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
     }
   };
 
+  // delete the full trip after the user confirms the action
   const handleDeleteTrip = async () => {
     const confirmed = window.confirm('Delete this trip and all of its activities?');
     if (!confirmed) return;
@@ -145,6 +159,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
     }
   };
 
+  // group recommendation results by category so they are easier to scan in the ui
   const groupedRecs = recommendations.reduce((acc, rec) => {
     const cat = rec.category || 'Other';
     if (!acc[cat]) acc[cat] = [];
@@ -501,7 +516,7 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
               fontSize: '0.85rem'
             }}
           >
-            You have reached the 5-activity limit for this trip. Upgrade to premium for unlimited activities.
+            You have reached the 5 activity limit for this trip. Upgrade to premium for unlimited activities.
           </div>
         )}
 

@@ -1,3 +1,4 @@
+// use react hooks for state memoized values and syncing with the backend
 import { useMemo, useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
@@ -11,10 +12,13 @@ import datasetDestinationOptions from './data/destinationOptions.json';
 import './App.css';
 import TripDetailsPage from './pages/TripDetailsPage';
 
+// destination card data used on the home page
 const DESTINATIONS = datasetDestinationOptions;
 
+// start with no local trips and then load the signed in users trips from the backend
 const INITIAL_TRIPS = [];
 
+// fallback coordinates for a few known destinations used by the older map helpers
 const DESTINATION_COORDS = {
   'Kyoto, Japan': [35.0116, 135.7681],
   'Lisbon, Portugal': [38.7223, -9.1393],
@@ -23,6 +27,7 @@ const DESTINATION_COORDS = {
   'Paris': [48.8566, 2.3522],
 };
 
+// build a single dropdown list of allowed destinations for the trip form
 const DESTINATION_OPTIONS = Array.from(
   new Set([
     ...datasetDestinationOptions.map((destination) => destination.destination),
@@ -31,6 +36,7 @@ const DESTINATION_OPTIONS = Array.from(
   ])
 ).sort();
 
+// reset leaflet icon lookup so marker images work in vite
 delete L.Icon.Default.prototype._getIconUrl;
 
 L.Icon.Default.mergeOptions({
@@ -47,14 +53,17 @@ const ACTIVITY_COORDS = {
   'Shibuya Crossing': [35.6595, 139.7005],
 };
 
+// older helper that returns fallback destination coordinates
 function getDestinationCoords(destination) {
   return DESTINATION_COORDS[destination] || [40.7128, -74.0060];
 }
 
+// older helper that returns fallback activity coordinates
 function getActivityCoords(activity, tripDestination) {
   return ACTIVITY_COORDS[activity.name] || getDestinationCoords(tripDestination);
 }
 
+// older helper component for map click logging
 function MapClickHandler() {
   useMapEvents({
     click(e) {
@@ -65,6 +74,7 @@ function MapClickHandler() {
   return null;
 }
 
+// older map component still kept inside this file
 function TripMap({ trip, selectedActivity, onSelectActivity }) {
   const center = getDestinationCoords(trip.destination);
 
@@ -124,7 +134,9 @@ function TripMap({ trip, selectedActivity, onSelectActivity }) {
   );
 }
 
+// home page where users browse destinations and save a trip with selected dates
 function HomePage({ isMember, onSaveItinerary, member }) {
+  // track which destination card is currently being saved
   const [saving, setSaving] = useState(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState(null);
@@ -139,6 +151,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
   const getPicsumFallback = (destination) =>
     `https://picsum.photos/seed/${encodeURIComponent(destination.destination || `${destination.city}-${destination.country}`)}/900/600`;
 
+  // open the date picker modal for the destination card the user clicked
   const openSaveModal = (destination) => {
     setSelectedDestination(destination);
     setTripDates({
@@ -157,6 +170,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
     });
   };
 
+  // create the trip in the backend once the user picks valid dates
   const handleConfirmSave = async () => {
     if (!selectedDestination || !tripDates.startDate || !tripDates.endDate) {
       alert('Please select both start and end dates.');
@@ -288,6 +302,7 @@ function HomePage({ isMember, onSaveItinerary, member }) {
   );
 }
 
+// login and signup page with base and premium plan selection
 function AuthPage({ onAuthSuccess }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', role: 'base' });
@@ -295,6 +310,7 @@ function AuthPage({ onAuthSuccess }) {
   const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
 
+  // handle both login and signup in one form based on the current mode
   const onSubmit = async (event) => {
     event.preventDefault();
     setError('');
@@ -380,11 +396,11 @@ function AuthPage({ onAuthSuccess }) {
                 </div>
               ) : (
                 <div>
-                  <strong>Premium Account Features: 3 Month Free-Trial</strong>
+                  <strong>Premium Account Features: 3 Month Free Trial</strong>
                   <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
                     <li><strong>Unlimited</strong> activities per trip.</li>
                     <li><strong>Weather Insights:</strong> Local forecasts for your dates.</li>
-                    <li><strong>Real-time Recommendations:</strong> Personalized activity suggestions.</li>
+                    <li><strong>Real Time Recommendations:</strong> Personalized activity suggestions.</li>
                     <li><strong>Event Search:</strong> Search local events during your trip dates.</li>
                   </ul>
                 </div>
@@ -415,6 +431,7 @@ function AuthPage({ onAuthSuccess }) {
   );
 }
 
+// simple dashboard that lists the signed in users saved trips
 function DashboardPage({ trips, memberEmail }) {
   return (
     <section>
@@ -437,6 +454,7 @@ function DashboardPage({ trips, memberEmail }) {
   );
 }
 
+// form page used for both creating a new trip and editing an existing one
 function TripFormPage({ trips, onSaveTrip, member }) {
   const { tripId } = useParams();
   const navigate = useNavigate();
@@ -447,6 +465,7 @@ function TripFormPage({ trips, onSaveTrip, member }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // save the trip to the backend and then move the user back to the dashboard
   const onSubmit = async (event) => {
     event.preventDefault();
     setLoading(true);
@@ -516,12 +535,15 @@ function TripFormPage({ trips, onSaveTrip, member }) {
   );
 }
 
+// redirect guests away from member only pages
 function ProtectedRoute({ isMember, children }) {
   if (!isMember) return <Navigate to="/auth" replace />;
   return children;
 }
 
+// main app component that manages auth state trip state and routing
 function App() {
+  // restore the signed in user from local storage when the app first opens
   const [member, setMemberState] = useState(() => {
     const savedUser = localStorage.getItem('travelPlannerUser');
     if (savedUser) {
@@ -536,10 +558,12 @@ function App() {
     return null;
   });
 
+  // store the current users trips in local app state
   const [trips, setTrips] = useState(INITIAL_TRIPS);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const memberEmail = useMemo(() => member?.email || 'member@example.com', [member]);
 
+  // keep the signed in user in both local storage and react state
   const setMember = (userData) => {
     if (userData) {
       localStorage.setItem('travelPlannerUser', JSON.stringify(userData));
@@ -549,6 +573,7 @@ function App() {
     setMemberState(userData);
   };
 
+  // load the signed in users trips from the backend
   const fetchTripsFromDb = async () => {
     if (!member?.id) return;
     try {
@@ -565,6 +590,7 @@ function App() {
     fetchTripsFromDb();
   }, [member?.id]);
 
+  // call the backend route that upgrades a base account to premium
   const handleUpgradeToPremium = async () => {
     if (!member?.id) return;
 
@@ -588,10 +614,12 @@ function App() {
     }
   };
 
+  // add a newly saved itinerary card to the top of local state
   const saveItinerary = (newTrip) => {
     setTrips((current) => [newTrip, ...current]);
   };
 
+  // add an activity through the backend and then refresh trip data
   const addActivity = async (tripId, activity) => {
     try {
       await travelApi.addActivity(tripId, activity, member?.id);
@@ -602,6 +630,7 @@ function App() {
     }
   };
 
+  // remove an activity through the backend and then refresh trip data
   const removeActivity = async (tripId, activityId) => {
     try {
       await travelApi.removeActivity(activityId);
@@ -611,6 +640,7 @@ function App() {
     }
   };
 
+  // delete a trip through the backend and remove it from local state
   const removeTrip = async (tripId) => {
     if (!member?.id) return;
     try {
@@ -622,6 +652,7 @@ function App() {
     }
   };
 
+  // update a trip in local state after create or edit actions
   const saveTrip = (trip) => {
     setTrips((current) => {
       const existing = current.find(item => item.id === trip.id);

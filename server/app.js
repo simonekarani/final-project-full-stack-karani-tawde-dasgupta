@@ -11,14 +11,17 @@ app.set('port', process.env.PORT || 3000)
 app.use(express.json())
 app.use(cors())
 
+// basic health route for browser check
 app.get('/', (req, res) => {
   res.send('Welcome to the Travel Planner API!')
 })
 
+// simple api health route
 app.get('/up', (req, res) => {
   res.json({ status: 'up' })
 })
 
+// find one user by id so routes can check role
 async function getUserById(userId) {
   const result = await query(
     'SELECT id, email, role FROM travelplanner_users WHERE id = $1',
@@ -27,6 +30,7 @@ async function getUserById(userId) {
   return result.rows[0] || null
 }
 
+// find the owner of a trip and their role
 async function getTripOwnerRole(tripId) {
   const result = await query(
     `SELECT u.id, u.role
@@ -38,24 +42,29 @@ async function getTripOwnerRole(tripId) {
   return result.rows[0] || null
 }
 
-// ===== RECOMMENDATIONS =====
+// recommendations are only for premium users
 app.get('/api/recommendations', async (req, res) => {
   const { interest, city } = req.query
   const userId = req.headers['x-user-id']
 
+  // make sure a logged in user is making the request
   if (!userId) {
     return res.status(401).json({ error: 'User ID required' })
   }
 
   const user = await getUserById(userId)
+
+  // stop if the user does not exist
   if (!user) {
     return res.status(401).json({ error: 'User not found' })
   }
 
+  // only premium users can use discovery
   if (user.role !== 'premium') {
     return res.status(403).json({ error: 'Recommendations are available for premium users only' })
   }
 
+  // both search pieces are needed
   if (!interest || !city) {
     return res.status(400).json({ error: 'Missing parameters.' })
   }
@@ -64,6 +73,7 @@ app.get('/api/recommendations', async (req, res) => {
     const url = 'https://places.googleapis.com/v1/places:searchText'
     const searchString = `${interest.replace(/_/g, ' ')} in ${city}`
 
+    // call google places text search
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -80,10 +90,12 @@ app.get('/api/recommendations', async (req, res) => {
 
     const data = await response.json()
 
+    // return empty list if nothing comes back
     if (!data.places) {
       return res.json([])
     }
 
+    // shape the api data into simpler frontend data
     const results = data.places.map((place) => ({
       id: place.id,
       name: place.displayName?.text || 'Unknown Name',
@@ -102,24 +114,28 @@ app.get('/api/recommendations', async (req, res) => {
   }
 })
 
-// ===== WEATHER =====
 app.get('/api/weather', async (req, res) => {
   const { city, date } = req.query
   const userId = req.headers['x-user-id']
 
+  // require a logged in user
   if (!userId) {
     return res.status(401).json({ error: 'User ID required' })
   }
 
   const user = await getUserById(userId)
+
+  // stop if user cannot be found
   if (!user) {
     return res.status(401).json({ error: 'User not found' })
   }
 
+  // block base users from weather
   if (user.role !== 'premium') {
     return res.status(403).json({ error: 'Weather is available for premium users only' })
   }
 
+  // city is required
   if (!city) {
     return res.status(400).json({ error: 'City parameter is required' })
   }
@@ -128,27 +144,36 @@ app.get('/api/weather', async (req, res) => {
     const today = new Date().toISOString().split('T')[0]
     const requestedDate = date || today
 
-    if (requestedDate === today) {
-      const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${process.env.OPENWEATHER_API_KEY}&units=imperial`
+    // helper for current weather
+    const fetchCurrentWeather = async () => {
+      const currentUrl = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${process.env.OPENWEATHER_API_KEY}&units=imperial`
 
-      const response = await fetch(url)
-      const data = await response.json()
+      const currentResponse = await fetch(currentUrl)
+      const currentData = await currentResponse.json()
 
-      if (!response.ok) {
-        return res.status(response.status).json({ error: data.message || 'Weather API error' })
+      if (!currentResponse.ok) {
+        return res.status(currentResponse.status).json({
+          error: currentData.message || 'Weather API error'
+        })
       }
 
       return res.json({
-        temperature: Math.round(data.main.temp),
-        conditions: data.weather[0].main,
-        description: data.weather[0].description,
-        humidity: data.main.humidity,
-        windSpeed: data.wind.speed,
-        icon: data.weather[0].icon,
+        temperature: Math.round(currentData.main.temp),
+        conditions: currentData.weather[0].main,
+        description: currentData.weather[0].description,
+        humidity: currentData.main.humidity,
+        windSpeed: currentData.wind.speed,
+        icon: currentData.weather[0].icon,
         isForecast: false
       })
     }
 
+    // use current weather for today or past dates
+    if (requestedDate <= today) {
+      return await fetchCurrentWeather()
+    }
+
+    // use forecast endpoint for future dates
     const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(city)}&appid=${process.env.OPENWEATHER_API_KEY}&units=imperial`
 
     const response = await fetch(forecastUrl)
@@ -158,25 +183,27 @@ app.get('/api/weather', async (req, res) => {
       return res.status(response.status).json({ error: data.message || 'Forecast API error' })
     }
 
-    const targetDate = new Date(requestedDate)
-    const targetDay = targetDate.toISOString().split('T')[0]
+    const targetDay = requestedDate
 
+    // keep only the entries for the requested day
     const dayForecasts = data.list.filter((item) => {
       const itemDate = new Date(item.dt * 1000).toISOString().split('T')[0]
       return itemDate === targetDay
     })
 
+    // if forecast not available for that exact day then fall back to current weather
     if (dayForecasts.length === 0) {
-      return res.status(404).json({ error: 'No forecast available for this date' })
+      return await fetchCurrentWeather()
     }
 
+    // try to use a midday forecast first
     const middayForecast =
       dayForecasts.find((f) => {
         const hour = new Date(f.dt * 1000).getHours()
         return hour >= 11 && hour <= 15
       }) || dayForecasts[0]
 
-    res.json({
+    return res.json({
       temperature: Math.round(middayForecast.main.temp),
       conditions: middayForecast.weather[0].main,
       description: middayForecast.weather[0].description,
@@ -192,14 +219,17 @@ app.get('/api/weather', async (req, res) => {
   }
 })
 
-// ===== EVENTS (PredictHQ) =====
+// turn a destination string into coordinates
 async function geocodeDestinationLabel(label) {
   if (!label?.trim()) return null
+
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(label.trim())}&count=1&language=en&format=json`
   const response = await fetch(url)
   const data = await response.json()
   const hit = data.results?.[0]
+
   if (!hit) return null
+
   return {
     lat: hit.latitude,
     lon: hit.longitude,
@@ -208,6 +238,7 @@ async function geocodeDestinationLabel(label) {
   }
 }
 
+// reshape predicthq event data for the frontend
 function mapPredictHqEvent(event) {
   const venueEntity = event.entities?.find((e) => e.type === 'venue')
   const addr =
@@ -222,6 +253,7 @@ function mapPredictHqEvent(event) {
 
   let date = ''
   let time = null
+
   if (event.start_local) {
     const [d, rest] = event.start_local.split('T')
     date = d || event.start_local.slice(0, 10)
@@ -249,8 +281,11 @@ function mapPredictHqEvent(event) {
   }
 }
 
+// fetch events from predicthq
 async function fetchPredictHqEvents({ lat, lon, country, activeGte, activeLte }) {
   const token = process.env.PREDICTHQ_API_KEY?.trim()
+
+  // skip if no predicthq key exists
   if (!token) return { events: [], rawCount: 0, skipped: true }
 
   const params = new URLSearchParams({
@@ -277,7 +312,7 @@ async function fetchPredictHqEvents({ lat, lon, country, activeGte, activeLte })
   try {
     data = await response.json()
   } catch {
-    /* non-JSON error body */
+    // ignore non json bodies here
   }
 
   if (!response.ok) {
@@ -293,11 +328,15 @@ async function fetchPredictHqEvents({ lat, lon, country, activeGte, activeLte })
   }
 }
 
+// fetch events from ticketmaster as a fallback
 async function fetchTicketmasterEvents(city, startDate, endDate) {
   const key = process.env.TICKETMASTER_API_KEY?.trim()
+
+  // skip if no ticketmaster key exists
   if (!key || key === 'ticketmaster_api_key') return []
 
   let url = `https://app.ticketmaster.com/discovery/v2/events.json?city=${encodeURIComponent(city)}&apikey=${key}&size=20`
+
   if (startDate && endDate) {
     url += `&startDateTime=${startDate}T00:00:00Z&endDateTime=${endDate}T23:59:59Z`
   } else if (startDate) {
@@ -306,6 +345,7 @@ async function fetchTicketmasterEvents(city, startDate, endDate) {
 
   const response = await fetch(url)
   const data = await response.json()
+
   if (!response.ok) return []
 
   return (
@@ -329,18 +369,23 @@ async function fetchTicketmasterEvents(city, startDate, endDate) {
   )
 }
 
+// event search is premium only
 app.get('/api/events', async (req, res) => {
   const userId = req.headers['x-user-id']
 
+  // require logged in user
   if (!userId) {
     return res.status(401).json({ error: 'User ID required' })
   }
 
   const user = await getUserById(userId)
+
+  // stop if user cannot be found
   if (!user) {
     return res.status(401).json({ error: 'User not found' })
   }
 
+  // block base users from event search
   if (user.role !== 'premium') {
     return res.status(403).json({ error: 'Event search is available for premium users only' })
   }
@@ -348,6 +393,7 @@ app.get('/api/events', async (req, res) => {
   const destination = (req.query.destination || req.query.city || '').trim()
   const { startDate, endDate } = req.query
 
+  // destination and date range are required
   if (!destination) {
     return res.status(400).json({ error: 'destination (or city) query parameter is required' })
   }
@@ -358,6 +404,8 @@ app.get('/api/events', async (req, res) => {
 
   try {
     const geo = await geocodeDestinationLabel(destination)
+
+    // stop if destination cannot be geocoded
     if (!geo) {
       return res.json({
         events: [],
@@ -382,9 +430,11 @@ app.get('/api/events', async (req, res) => {
     const predicthqConfigured = Boolean(process.env.PREDICTHQ_API_KEY?.trim())
     let message = null
 
+    // try ticketmaster if predicthq returns nothing
     if (events.length === 0) {
       const cityPart = destination.split(',')[0].trim()
       const tm = await fetchTicketmasterEvents(cityPart, startDate, endDate)
+
       if (tm.length > 0) {
         events = tm
         total = tm.length
@@ -411,10 +461,11 @@ app.get('/api/events', async (req, res) => {
   }
 })
 
-// ===== AUTH =====
+// signup route creates a user with base or premium role
 app.post('/api/signup', async (req, res) => {
   const { email, password, role } = req.body
 
+  // require email and password
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' })
   }
@@ -425,13 +476,16 @@ app.post('/api/signup', async (req, res) => {
       [email]
     )
 
+    // prevent duplicate emails
     if (userCheck.rows.length > 0) {
       return res.status(409).json({ error: 'User exists' })
     }
 
+    // only allow the two valid roles
     const validRoles = ['base', 'premium']
     const assignedRole = validRoles.includes(role) ? role : 'base'
 
+    // hash password before storing
     const hashedPassword = await bcrypt.hash(password, 10)
 
     const result = await query(
@@ -446,9 +500,11 @@ app.post('/api/signup', async (req, res) => {
   }
 })
 
+// login route returns user info including role
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body
 
+  // require email and password
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' })
   }
@@ -459,10 +515,12 @@ app.post('/api/login', async (req, res) => {
       [email]
     )
 
+    // fail if the email is unknown
     if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
+    // compare entered password with stored hash
     const match = await bcrypt.compare(password, result.rows[0].password)
 
     if (!match) {
@@ -480,15 +538,17 @@ app.post('/api/login', async (req, res) => {
   }
 })
 
-// ===== UPGRADE ACCOUNT =====
+// lets a base user upgrade to premium
 app.post('/api/users/:userId/upgrade', async (req, res) => {
   const { userId } = req.params
   const requesterId = req.headers['x-user-id']
 
+  // require logged in user id
   if (!requesterId) {
     return res.status(401).json({ error: 'User ID required' })
   }
 
+  // only allow users to upgrade their own account
   if (String(requesterId) !== String(userId)) {
     return res.status(403).json({ error: 'You can only upgrade your own account' })
   }
@@ -496,10 +556,12 @@ app.post('/api/users/:userId/upgrade', async (req, res) => {
   try {
     const user = await getUserById(userId)
 
+    // stop if user is missing
     if (!user) {
       return res.status(404).json({ error: 'User not found' })
     }
 
+    // return early if already premium
     if (user.role === 'premium') {
       return res.json({
         id: user.id,
@@ -529,10 +591,11 @@ app.post('/api/users/:userId/upgrade', async (req, res) => {
   }
 })
 
-// ===== TRIPS =====
+// get all trips for one logged in user
 app.get('/api/trips', async (req, res) => {
   const userId = req.headers['x-user-id']
 
+  // require a user id header
   if (!userId) {
     return res.status(400).json({ error: 'User ID required' })
   }
@@ -546,6 +609,7 @@ app.get('/api/trips', async (req, res) => {
       [userId]
     )
 
+    // fetch activities for each trip and bundle them together
     const trips = await Promise.all(
       tripsRes.rows.map(async (trip) => {
         const actRes = await query(
@@ -574,9 +638,11 @@ app.get('/api/trips', async (req, res) => {
   }
 })
 
+// create a new trip
 app.post('/api/trips', async (req, res) => {
   const { user_id, destination, start_date, end_date, notes } = req.body
 
+  // require the main trip fields
   if (!user_id || !destination || !start_date || !end_date) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
@@ -596,10 +662,12 @@ app.post('/api/trips', async (req, res) => {
   }
 })
 
+// update an existing trip
 app.put('/api/trips/:tripId', async (req, res) => {
   const { tripId } = req.params
   const { destination, start_date, end_date, notes } = req.body
 
+  // require the main trip fields
   if (!destination || !start_date || !end_date) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
@@ -619,17 +687,21 @@ app.put('/api/trips/:tripId', async (req, res) => {
   }
 })
 
+// delete a trip and its activities
 app.delete('/api/trips/:tripId', async (req, res) => {
   const userId = req.headers['x-user-id']
   const { tripId } = req.params
 
+  // require logged in user
   if (!userId) {
     return res.status(400).json({ error: 'User ID required' })
   }
 
   try {
+    // delete child activities first
     await query('DELETE FROM travelplanner_activities WHERE trip_id = $1', [tripId])
 
+    // only delete the trip if it belongs to that user
     const tripResult = await query(
       'DELETE FROM travelplanner_trips WHERE id = $1 AND user_id = $2 RETURNING id',
       [tripId, userId]
@@ -646,16 +718,18 @@ app.delete('/api/trips/:tripId', async (req, res) => {
   }
 })
 
-// ===== ACTIVITIES =====
+// add an activity to a trip
 app.post('/api/trips/:tripId/activities', async (req, res) => {
   const { tripId } = req.params
   const { name, location, date, notes } = req.body
   const userId = req.headers['x-user-id']
 
+  // require logged in user
   if (!userId) {
     return res.status(401).json({ error: 'User ID required' })
   }
 
+  // require the main activity fields
   if (!name || !location || !date) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
@@ -663,14 +737,17 @@ app.post('/api/trips/:tripId/activities', async (req, res) => {
   try {
     const owner = await getTripOwnerRole(tripId)
 
+    // stop if the trip cannot be found
     if (!owner) {
       return res.status(404).json({ error: 'Trip not found' })
     }
 
+    // make sure only the trip owner can add to it
     if (String(owner.id) !== String(userId)) {
       return res.status(403).json({ error: 'You do not have permission to modify this trip' })
     }
 
+    // base users can only have five activities on a trip
     if (owner.role === 'base') {
       const countResult = await query(
         'SELECT COUNT(*)::int AS count FROM travelplanner_activities WHERE trip_id = $1',
@@ -678,6 +755,7 @@ app.post('/api/trips/:tripId/activities', async (req, res) => {
       )
 
       const currentCount = countResult.rows[0].count
+
       if (currentCount >= 5) {
         return res.status(403).json({ error: 'Base users can only add up to 5 activities per trip' })
       }
@@ -697,6 +775,7 @@ app.post('/api/trips/:tripId/activities', async (req, res) => {
   }
 })
 
+// delete a single activity
 app.delete('/api/activities/:activityId', async (req, res) => {
   try {
     await query(
@@ -710,6 +789,7 @@ app.delete('/api/activities/:activityId', async (req, res) => {
   }
 })
 
+// fetch all activities if needed for testing
 app.get('/api/activities', async (req, res) => {
   try {
     const result = await query(
@@ -722,6 +802,7 @@ app.get('/api/activities', async (req, res) => {
   }
 })
 
+// start the express server
 app.listen(app.get('port'), () => {
   console.log(`Server running at http://localhost:${app.get('port')}`)
 })
