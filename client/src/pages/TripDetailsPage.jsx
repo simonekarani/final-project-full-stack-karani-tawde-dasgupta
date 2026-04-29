@@ -1,4 +1,3 @@
-// use react hooks for page state side effects and grouped memoized values
 import axios from 'axios';
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
@@ -6,43 +5,73 @@ import { travelApi } from '../api.js';
 import TripMap from '../components/TripMap';
 
 const WEATHER_DESCRIPTIONS = {
-  0: "Clear sky",
-  1: "Mainly clear", 
-  2: "Partly cloudy", 
-  3: "Overcast",
-  45: "Fog", 
-  48: "Depositing rime fog",
-  51: "Light drizzle", 
-  53: "Moderate drizzle", 
-  55: "Dense drizzle",
-  61: "Slight rain", 
-  63: "Moderate rain", 
-  65: "Heavy rain",
-  71: "Slight snow", 
-  73: "Moderate snow", 
-  75: "Heavy snow",
-  77: "Snow grains",
-  80: "Slight rain showers", 
-  81: "Moderate rain showers", 
-  82: "Violent rain showers",
-  95: "Thunderstorm", 
-  96: "Thunderstorm with slight hail", 
-  99: "Thunderstorm with heavy hail",
+  0: 'Clear sky',
+  1: 'Mainly clear',
+  2: 'Partly cloudy',
+  3: 'Overcast',
+  45: 'Fog',
+  48: 'Depositing rime fog',
+  51: 'Light drizzle',
+  53: 'Moderate drizzle',
+  55: 'Dense drizzle',
+  61: 'Slight rain',
+  63: 'Moderate rain',
+  65: 'Heavy rain',
+  71: 'Slight snow',
+  73: 'Moderate snow',
+  75: 'Heavy snow',
+  77: 'Snow grains',
+  80: 'Slight rain showers',
+  81: 'Moderate rain showers',
+  82: 'Violent rain showers',
+  95: 'Thunderstorm',
+  96: 'Thunderstorm with slight hail',
+  99: 'Thunderstorm with heavy hail',
 };
 
-// page that shows one trip in detail along with premium gated features
+function buildNotesWithCoords(baseNotes, coords) {
+  if (!coords || !Array.isArray(coords) || coords.length !== 2) {
+    return baseNotes || '';
+  }
+
+  const cleanBase = baseNotes || '';
+  return `${cleanBase} [coords:${coords[0]},${coords[1]}]`.trim();
+}
+
+function extractCoordsFromNotes(notes) {
+  if (!notes) return null;
+
+  const match = notes.match(/\[coords:([-.\d]+),([-.\d]+)\]/);
+  if (!match) return null;
+
+  return {
+    latitude: Number(match[1]),
+    longitude: Number(match[2])
+  };
+}
+
+function stripCoordsFromNotes(notes) {
+  if (!notes) return '';
+  return notes.replace(/\s*\[coords:([-.\d]+),([-.\d]+)\]/, '').trim();
+}
+
 function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip, member }) {
-  // read the trip id from the route and find the matching trip from state
   const { tripId } = useParams();
   const navigate = useNavigate();
   const trip = trips.find((item) => String(item.id) === tripId);
 
-  // account type controls what features are unlocked on this page
   const isPremium = member?.role === 'premium';
   const activityLimitReached = !isPremium && (trip?.activities?.length || 0) >= 5;
 
-  // form state for adding a new activity
-  const [activity, setActivity] = useState({ name: '', location: '', date: '', notes: '' });
+  const [activity, setActivity] = useState({
+    name: '',
+    location: '',
+    date: '',
+    notes: '',
+    latitude: null,
+    longitude: null
+  });
+
   const [recommendations, setRecommendations] = useState([]);
   const [category, setCategory] = useState('museum');
   const [isSearching, setIsSearching] = useState(false);
@@ -54,7 +83,6 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
   const [eventsMeta, setEventsMeta] = useState({ source: null, message: null, predicthqConfigured: null });
   const [isDeletingTrip, setIsDeletingTrip] = useState(false);
 
-  // group saved activities by date so the itinerary can be shown day by day
   const groupedActivities = useMemo(() => {
     if (!trip?.activities) return {};
 
@@ -68,94 +96,93 @@ function TripDetailsPage({ trips, onAddActivity, onRemoveActivity, onRemoveTrip,
 
   const sortedDates = Object.keys(groupedActivities).sort();
 
-  // fetch weather only when the account is premium and the trip has valid dates
-useEffect(() => {
-  const fetchTripWeather = async () => {
-    // 1. Core logic gate: must be premium and have trip details
-    const rawStart = trip?.start_date || trip?.startDate;
-    const rawEnd = trip?.end_date || trip?.endDate;
+  useEffect(() => {
+    const fetchTripWeather = async () => {
+      const rawStart = trip?.start_date || trip?.startDate;
+      const rawEnd = trip?.end_date || trip?.endDate;
 
-    if (!isPremium || !trip?.destination || !rawStart) {
-      setWeather(null);
-      return;
-    }
-
-    // 2. Date Formatting: Ensure YYYY-MM-DD format
-    // This handles ISO strings (2026-05-20T...) or simple strings (2026-05-20)
-    const startDate = typeof rawStart === 'string' ? rawStart.slice(0, 10) : new Date(rawStart).toISOString().split('T')[0];
-    const endDate = typeof rawEnd === 'string' ? rawEnd.slice(0, 10) : new Date(rawEnd).toISOString().split('T')[0];
-
-    setWeatherLoading(true);
-
-    try {
-      // 3. Geocoding: Convert City to Lat/Long
-      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trip.destination)}&count=1&language=en&format=json`;
-      const geoRes = await axios.get(geoUrl);
-
-      if (!geoRes.data.results || geoRes.data.results.length === 0) {
-        throw new Error("Location not found");
+      if (!isPremium || !trip?.destination || !rawStart) {
+        setWeather(null);
+        return;
       }
 
-      const { latitude, longitude } = geoRes.data.results[0];
+      const startDate =
+        typeof rawStart === 'string'
+          ? rawStart.slice(0, 10)
+          : new Date(rawStart).toISOString().split('T')[0];
 
-      // 4. Forecast vs. Archive Logic
-      const today = new Date();
-      const tripStartObj = new Date(startDate);
-      // If trip is > 14 days away, we use the Archive API for "typical" weather
-      const isTooFarOut = (tripStartObj - today) > (14 * 24 * 60 * 60 * 1000);
+      const endDate =
+        typeof rawEnd === 'string'
+          ? rawEnd.slice(0, 10)
+          : rawEnd
+            ? new Date(rawEnd).toISOString().split('T')[0]
+            : startDate;
 
-      let apiUrl = "https://api.open-meteo.com/v1/forecast";
-      let params = {
-        latitude,
-        longitude,
-        daily: "weather_code,temperature_2m_max",
-        temperature_unit: "fahrenheit",
-        timezone: "auto"
-      };
+      setWeatherLoading(true);
 
-      if (isTooFarOut) {
-        // Shift date back 1 year to get historical data for this date
-        const lastYear = new Date(tripStartObj);
-        lastYear.setFullYear(lastYear.getFullYear() - 1);
-        const lastYearStr = lastYear.toISOString().split('T')[0];
-        
-        apiUrl = "https://archive-api.open-meteo.com/v1/archive";
-        params.start_date = lastYearStr;
-        params.end_date = lastYearStr;
-      } else {
-        // Use the real-time forecast
-        params.start_date = startDate;
-        params.end_date = endDate || startDate;
+      try {
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+          trip.destination
+        )}&count=1&language=en&format=json`;
+
+        const geoRes = await axios.get(geoUrl);
+
+        if (!geoRes.data.results || geoRes.data.results.length === 0) {
+          throw new Error('Location not found');
+        }
+
+        const { latitude, longitude } = geoRes.data.results[0];
+
+        const today = new Date();
+        const tripStartObj = new Date(startDate);
+        const isTooFarOut = tripStartObj - today > 14 * 24 * 60 * 60 * 1000;
+
+        let apiUrl = 'https://api.open-meteo.com/v1/forecast';
+        let params = {
+          latitude,
+          longitude,
+          daily: 'weather_code,temperature_2m_max',
+          temperature_unit: 'fahrenheit',
+          timezone: 'auto'
+        };
+
+        if (isTooFarOut) {
+          const lastYear = new Date(tripStartObj);
+          lastYear.setFullYear(lastYear.getFullYear() - 1);
+          const lastYearStr = lastYear.toISOString().split('T')[0];
+
+          apiUrl = 'https://archive-api.open-meteo.com/v1/archive';
+          params.start_date = lastYearStr;
+          params.end_date = lastYearStr;
+        } else {
+          params.start_date = startDate;
+          params.end_date = endDate || startDate;
+        }
+
+        const weatherRes = await axios.get(apiUrl, { params });
+        const daily = weatherRes.data.daily;
+
+        if (daily && daily.temperature_2m_max?.length > 0) {
+          setWeather({
+            temperature: Math.round(daily.temperature_2m_max[0]),
+            conditions: WEATHER_DESCRIPTIONS[daily.weather_code[0]] || 'Clear',
+            description: isTooFarOut ? 'Based on seasonal averages' : 'Official Forecast',
+            isForecast: !isTooFarOut
+          });
+        } else {
+          setWeather(null);
+        }
+      } catch (err) {
+        console.error('Weather data error:', err.message);
+        setWeather(null);
+      } finally {
+        setWeatherLoading(false);
       }
+    };
 
-      // 5. Final Weather Fetch
-      const weatherRes = await axios.get(apiUrl, { params });
-      const daily = weatherRes.data.daily;
+    fetchTripWeather();
+  }, [trip?.destination, trip?.start_date, trip?.startDate, trip?.end_date, trip?.endDate, isPremium]);
 
-      if (daily && daily.temperature_2m_max?.length > 0) {
-        setWeather({
-          temperature: Math.round(daily.temperature_2m_max[0]),
-          conditions: WEATHER_DESCRIPTIONS[daily.weather_code[0]] || "Clear",
-          description: isTooFarOut ? "Based on seasonal averages" : "Official Forecast",
-          isForecast: !isTooFarOut
-        });
-      }
-
-    } catch (err) {
-      console.error("Weather data error:", err.message);
-      setWeather(null);
-    } finally {
-      setWeatherLoading(false);
-    }
-  };
-
-  fetchTripWeather();
-}, [trip?.destination, trip?.start_date, trip?.startDate, isPremium]);
-
-
-
-
-  // fetch local events only when the account is premium and dates are available
   useEffect(() => {
     const fetchTripEvents = async () => {
       if (!trip?.destination || !member?.id || !isPremium) return;
@@ -190,7 +217,6 @@ useEffect(() => {
 
   if (!trip) return <Navigate to="/dashboard" replace />;
 
-  // search for google places recommendations for the current destination
   const handleSearchRecs = async () => {
     if (!isPremium) return;
 
@@ -206,7 +232,6 @@ useEffect(() => {
     }
   };
 
-  // submit a new activity and stop base users once they reach the activity limit
   const submitActivity = async (event) => {
     event.preventDefault();
 
@@ -220,7 +245,15 @@ useEffect(() => {
     setIsSubmitting(true);
     try {
       await onAddActivity(trip.id, activity);
-      setActivity({ name: '', location: '', date: '', notes: '' });
+      setActivity({
+        name: '',
+        location: '',
+        date: '',
+        notes: '',
+        latitude: null,
+        longitude: null
+      });
+      setRecommendations([]);
     } catch (err) {
       console.error('Submit failed', err);
     } finally {
@@ -228,7 +261,6 @@ useEffect(() => {
     }
   };
 
-  // delete the full trip after the user confirms the action
   const handleDeleteTrip = async () => {
     const confirmed = window.confirm('Delete this trip and all of its activities?');
     if (!confirmed) return;
@@ -245,7 +277,6 @@ useEffect(() => {
     }
   };
 
-  // group recommendation results by category so they are easier to scan in the ui
   const groupedRecs = recommendations.reduce((acc, rec) => {
     const cat = rec.category || 'Other';
     if (!acc[cat]) acc[cat] = [];
@@ -397,14 +428,20 @@ useEffect(() => {
                           <button
                             className="ghost-btn"
                             style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                            onClick={() =>
+                            onClick={() => {
                               setActivity({
                                 name: rec.name,
                                 location: rec.address,
                                 date: '',
-                                notes: `Imported from Discovery (${catName}). Rating: ${rec.rating} stars.`
-                              })
-                            }
+                                notes: buildNotesWithCoords(
+                                  `Imported from Discovery (${catName}). Rating: ${rec.rating} stars.`,
+                                  rec.coordinates
+                                ),
+                                latitude: rec.coordinates ? rec.coordinates[0] : null,
+                                longitude: rec.coordinates ? rec.coordinates[1] : null
+                              });
+                              setRecommendations([]);
+                            }}
                           >
                             Use
                           </button>
@@ -453,7 +490,9 @@ useEffect(() => {
                           name: event.name,
                           location: `${event.venue}${event.address ? `, ${event.address}` : ''}, ${event.city}`,
                           date: event.date,
-                          notes: `Event: ${event.genre || 'General'}. ${event.description || ''}`
+                          notes: `Event: ${event.genre || 'General'}. ${event.description || ''}`,
+                          latitude: null,
+                          longitude: null
                         })
                       }
                     >
@@ -536,7 +575,9 @@ useEffect(() => {
                       <div>
                         <strong style={{ color: '#333' }}>{item.name}</strong>
                         <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#666' }}>📍 {item.location}</p>
-                        {item.notes && <small style={{ color: '#888', fontStyle: 'italic' }}>"{item.notes}"</small>}
+                        {stripCoordsFromNotes(item.notes) && (
+                          <small style={{ color: '#888', fontStyle: 'italic' }}>"{stripCoordsFromNotes(item.notes)}"</small>
+                        )}
                       </div>
 
                       <button
@@ -560,23 +601,20 @@ useEffect(() => {
             destination={{
               name: trip.destination
             }}
-            attractions={(recommendations || [])
-              .filter((rec) => rec.coordinates && Array.isArray(rec.coordinates))
-              .map((rec) => ({
-                id: rec.id,
-                name: rec.name,
-                location: rec.address,
-                coordinates: rec.coordinates
-              }))}
-            activities={(trip.activities || []).map((item) => ({
-              id: item.id,
-              name: item.name,
-              location: item.location,
-              date: item.date,
-              notes: item.notes,
-              latitude: item.latitude,
-              longitude: item.longitude
-            }))}
+            attractions={[]}
+            activities={(trip.activities || []).map((item) => {
+              const parsedCoords = extractCoordsFromNotes(item.notes);
+
+              return {
+                id: item.id,
+                name: item.name,
+                location: item.location,
+                date: item.date,
+                notes: stripCoordsFromNotes(item.notes),
+                latitude: parsedCoords ? parsedCoords.latitude : null,
+                longitude: parsedCoords ? parsedCoords.longitude : null
+              };
+            })}
             onMarkerClick={(item) => console.log('clicked marker:', item)}
           />
         </div>
@@ -602,7 +640,7 @@ useEffect(() => {
               fontSize: '0.85rem'
             }}
           >
-            You have reached the 5 activity limit for this trip. Upgrade to premium for unlimited activities.
+            You have reached the 5-activity limit for this trip. Upgrade to premium for unlimited activities.
           </div>
         )}
 
@@ -617,7 +655,14 @@ useEffect(() => {
           <label>Location</label>
           <input
             value={activity.location}
-            onChange={(e) => setActivity({ ...activity, location: e.target.value })}
+            onChange={(e) =>
+              setActivity({
+                ...activity,
+                location: e.target.value,
+                latitude: null,
+                longitude: null
+              })
+            }
             disabled={activityLimitReached}
           />
 
@@ -631,8 +676,13 @@ useEffect(() => {
 
           <label>Notes</label>
           <textarea
-            value={activity.notes}
-            onChange={(e) => setActivity({ ...activity, notes: e.target.value })}
+            value={stripCoordsFromNotes(activity.notes)}
+            onChange={(e) =>
+              setActivity({
+                ...activity,
+                notes: e.target.value
+              })
+            }
             rows="3"
             disabled={activityLimitReached}
           />
